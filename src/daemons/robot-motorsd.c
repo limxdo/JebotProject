@@ -13,11 +13,11 @@
 #define CMD_FIFO        "robot-cmd"
 #define REPLAY_FIFO     "robot-replay"
 
-unsigned int RUNNING = 1;
+bool RUNNING = true;
 
 /* handler of signals */
 void handler(int signum) {
-    RUNNING = 0;
+    RUNNING = false;
     puts("");
 }
 
