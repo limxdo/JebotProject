@@ -369,7 +369,6 @@ int main(void) {
             else {
                 move_ret = move(request_args.type, request_args.seconds);
 
-                move_ret = 0;
                 if (move_ret < 0)
                     fprintf(stderr, "\033[32mEXECUTION:\033[0m FAILED (%s)\n", pigpio_error(move_ret));
                 else
