@@ -19,25 +19,27 @@
 #define  RIGHT_MOTORS   17
 #define  LEFT_MOTORS    27
 
-bool RUNNING = true;
-bool moving = false;
-uint64_t cmd_timeout = 0;
-bool do_reply = false;
-int move_ret_reply = -1;
+/* global vars */
+bool RUNNING = true;        // main loop
+uint64_t cmd_timer = 0;     // timer of command
+bool do_reply = false;      // know if do reply
+int move_ret_reply = -1;    // last move() return reply to do reply
+
 
 /* handler of signals */
 void handler(int signum) {
-    RUNNING = false;
-    puts("");
+    RUNNING = false;    // stop the loop
+    puts("");   // separator
 }
 
-uint64_t now_ms() {
+/* timer in ms */
+uint64_t now_ms(void) {
     struct timespec ts;
 
     clock_gettime(CLOCK_MONOTONIC, &ts);
 
-    /*      convert sec to ms     convert ns to ms */
-    return (ts.tv_sec * 1000) + (ts.tv_nsec / 1000000);
+    /*          convert sec to ms                  convert ns to ms */
+    return ((uint64_t)ts.tv_sec * 1000ULL) + ((uint64_t)ts.tv_nsec / 1000000ULL);
 }
 
 
@@ -64,23 +66,21 @@ struct cmd_args {
  */
 
 /* function to filter a struct from one string */
-void parse_cmd(struct cmd_args *request_args, const char *request) {
+void parse_cmd(struct cmd_args *request_args, char *request) {
 
     /* default values */
     request_args->type = CMD_UNKNOWN;
     request_args->seconds = 0;
     request_args->reply = false;
 
-    char scopy[strlen(request)+1]; // +1 for '\0'
-    strcpy(scopy, request);
+    char *argptr;   // strtok
+    char *endptr;    // for strtol
 
-    char *argptr;
-    char *endul;    // for strtol
-
-    argptr = strtok(scopy, " ");
+    /* first argument */
+    argptr = strtok(request, " ");
 
     /* get type of request_args->type */
-    if (argptr == NULL) {
+    if (argptr == NULL) { // if empty
         return;
     }
     else {
@@ -106,24 +106,28 @@ void parse_cmd(struct cmd_args *request_args, const char *request) {
         }
     }
 
-    /* get seconds */
+    /* second argument */
     argptr = strtok(NULL, " ");
     
     if (argptr == NULL) {
         return;
     }
     else {
+        /* if second is reply */
         if (strcmp(argptr, "--reply") == 0) {
             request_args->reply = true;
             return;
         }
         else {
-            request_args->seconds = strtol(argptr, &endul, 10);
-            if (endul == argptr) {  // not a number
+            /* if seconds */
+            request_args->seconds = strtol(argptr, &endptr, 10);
+            if (endptr == argptr) {  // not a number
                 request_args->seconds = 0;
             }
         }
     }
+
+    /* third argument */
     argptr = strtok(NULL, " ");
 
     if (argptr == NULL) {
@@ -137,7 +141,7 @@ void parse_cmd(struct cmd_args *request_args, const char *request) {
 }
 
 /* main function to moving */
-int move(enum cmd_type mode, unsigned long seconds) {
+int move(enum cmd_type type, long seconds) {
 
     /* 
      * NOTE: All GPIO operations in this function are currently temporary and for testing purposes only.
@@ -150,10 +154,10 @@ int move(enum cmd_type mode, unsigned long seconds) {
     seconds *= 1000;
     int gpio_write_status;
 
-    unsigned long angle_90 = 2 * 1000; // 2 seconds (tmp) for example
+    unsigned int angle_90 = 2 * 1000; // 2 seconds (tmp) for example
 
     /* execute command and error checking */
-    switch (mode) {
+    switch (type) {
         case CMD_MOVE_FORWARD:
             /* check if writing gpio success of failed */
             if (
@@ -165,8 +169,7 @@ int move(enum cmd_type mode, unsigned long seconds) {
             }
 
             /* start timer if success */
-            cmd_timeout = now_ms() + seconds;
-            moving = true;
+            cmd_timer = now_ms() + seconds;
             break;
 
         case CMD_MOVE_BACK:
@@ -178,8 +181,7 @@ int move(enum cmd_type mode, unsigned long seconds) {
                 return gpio_write_status;
             }
 
-            cmd_timeout = now_ms() + seconds;
-            moving = true;
+            cmd_timer = now_ms() + seconds;
             break;
 
         case CMD_TURN_RIGHT:
@@ -191,8 +193,7 @@ int move(enum cmd_type mode, unsigned long seconds) {
                 return gpio_write_status;
             }
 
-            cmd_timeout = now_ms() + angle_90;
-            moving = true;
+            cmd_timer = now_ms() + angle_90;
             break;
 
         case CMD_TURN_LEFT:
@@ -204,8 +205,7 @@ int move(enum cmd_type mode, unsigned long seconds) {
                 return gpio_write_status;
             }
 
-            cmd_timeout = now_ms() + angle_90;
-            moving = true;
+            cmd_timer = now_ms() + angle_90;
             break;
 
         case CMD_STOP:
@@ -216,8 +216,7 @@ int move(enum cmd_type mode, unsigned long seconds) {
             )
                 return gpio_write_status;
 
-            cmd_timeout = 0;
-            moving = false;
+            cmd_timer = 0;
             break;
     }
 
@@ -256,6 +255,7 @@ int main(void) {
 
     printf("PID: %d\n\n", getpid());
 
+    /* connect to pigpio daemon */
     int conn = pigpio_start(NULL, NULL); // (NULL, NULL) uses to connect to local gpio daemon (pigpiod)
 
     /* signal handling */
@@ -264,7 +264,7 @@ int main(void) {
     signal(SIGPIPE, SIG_IGN);
 
     if (conn < 0) {
-        fprintf(stderr, "\033[31mFAILED connect to pigpiod:\033[0m %s\n", pigpio_error(conn));
+        fprintf(stderr, "\033[31mConnection failed:\033[0m %s\n", pigpio_error(conn));
         return 1;
     }
 
@@ -278,25 +278,26 @@ int main(void) {
     /* robot-cmd FD */
     int CMD_FIFO_FD = -1;
 
-    /* creating FIFO files */
+    /* creating CMD_FIFO file */
     while (mkfifo(CMD_FIFO, 0666) < 0) {
         unlink(CMD_FIFO);
-        fprintf(stderr, "\033[31mWARNING: mkfifo %s\033[0m: %s\n", CMD_FIFO, strerror(errno));
-        usleep(50000) ;
+        fprintf(stderr, "\033[33mWARNING: mkfifo %s\033[0m: %s\n", CMD_FIFO, strerror(errno));
+        usleep(10000) ;
     }
     //printf("\033[32mCreating\033[0m '%s' \033[32mSuccess\033[0m\n", CMD_FIFO); // (verbose)
     chmod(CMD_FIFO, 0666);
 
+    /* open fd for CMD_FIFO */
     while ((CMD_FIFO_FD = open(CMD_FIFO, O_RDONLY | O_NONBLOCK)) < 0) {
-        perror("\033[31mWARNING: open CMD_FIFO_FD\033[0m");
+        perror("\033[33mWARNING: open CMD_FIFO_FD\033[0m");
         usleep(10000);
     }
 
 
     while (mkfifo(REPLY_FIFO, 0666) < 0) {
         unlink(REPLY_FIFO);
-        fprintf(stderr, "\033[31mWARNING: mkfifo %s: \033[0m: %s\n", REPLY_FIFO, strerror(errno));
-        usleep(50000) ;
+        fprintf(stderr, "\033[33mWARNING: mkfifo %s: \033[0m: %s\n", REPLY_FIFO, strerror(errno));
+        usleep(10000) ;
     }
     chmod(REPLY_FIFO, 0666);
     //printf("\033[32mCreating\033[0m '%s' \033[32mSuccess\033[0m\n", REPLY_FIFO); // (verbose)
@@ -309,10 +310,10 @@ int main(void) {
 
     struct cmd_args request_args;
 
-    puts("\n|********** Daemon Is Started **********|\n");
+    puts("\n|********** Motord Is Started **********|\n");
     while(RUNNING) {
 
-        if (moving && now_ms() >= cmd_timeout) {
+        if (cmd_timer && now_ms() >= cmd_timer) {
             move(CMD_STOP, 0);
             if (do_reply) {
                 do_reply = false;
@@ -329,7 +330,7 @@ int main(void) {
 
             parse_cmd(&request_args, request);
 
-            /* printf info ***(verbose)*** */
+            /* print info ***(verbose)*** */
             /* 
             printf("type:           ");
             switch (request_args.type) {
@@ -406,10 +407,10 @@ int main(void) {
 
     /* remove FIFO files */
     if (unlink(CMD_FIFO) < 0)
-        perror("\033[31mWARNING: unlink CMD_FIFO\033[0m");
+        fprintf(stderr, "\033[33mWARNING: unlink %s:\033[0m %s", CMD_FIFO, strerror(errno));
 
     if (unlink(REPLY_FIFO) < 0)
-        perror("\033[31mWARNING: unlink REPLY_FIFO\033[0m");
+        fprintf(stderr, "\033[33mWARNING: unlink %s:\033[0m %s", REPLY_FIFO, strerror(errno));
 
 
     puts("\nexiting...");
