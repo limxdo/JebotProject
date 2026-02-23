@@ -2,6 +2,8 @@
 #include <unistd.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <errno.h>
+#include <string.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -9,24 +11,25 @@
 
 
 /* GPIOs */
-#define RIGHT_MOTORS   17
-#define LEFT_MOTORS    27
-#define ECHO           23
-#define TRIG           24
+#define ECHO    23
+#define TRIG    24
 
-/* robot-cmd file path */
-#define CMD_FIFO "/tmp/robot-cmd"
+/* files */
+#define MOTORD_PIDFILE "/tmp/motord.pid"
 
 /* config (can change it) */
-#define MAX_DISTANCE 20 // CM
-#define WAIT_TIME_US (0.75 * 1000000)
-bool RUNNING = true;    // loop condition
+#define MAX_DISTANCE 30         // CM
+#define WAIT_TIME_US 750000     // 0.75 seconds in microseconds
+
+/* global vars */
+volatile bool RUNNING = true;   // loop condition
+bool blocked = false;           // if sended signal to motord
 
 /* signal handler */
 void handler(int signum) {
-    RUNNING = false;    // stop the loop
-    puts("");
+    RUNNING = false; // stop the loop
 }
+
 
 /*
  * Ultrasonic timing design notes:
@@ -95,7 +98,7 @@ float get_distance(int trig, int echo) {
       * can get timeout_us for any distance from:
       * (2 * distance) / 0.0343
       */
-    duration = pulsein(echo, 10000); // for testing (~= 150cm)
+    duration = pulsein(echo, 10000); // 10000 for testing (~= 150cm)
 
     distance = duration * 0.0343 / 2.0;
 
@@ -104,7 +107,25 @@ float get_distance(int trig, int echo) {
 
 int main(void) {
 
-    printf("PID: %d\n\n", getpid());
+    printf("PID: %d\n", getpid());
+
+    /* get motord pid */
+    pid_t motord_pid;
+    FILE *motord_pid_f = fopen(MOTORD_PIDFILE, "r");
+    if (!motord_pid_f) {
+        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m fopen %s: %s\n", MOTORD_PIDFILE, strerror(errno));
+        return 1;
+    }
+    fscanf(motord_pid_f, "%d", &motord_pid);
+    fclose(motord_pid_f);
+    
+    /* try to send signal to motord */
+    if (kill(motord_pid, 0) < 0) {
+        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m kill %d: %s\n", motord_pid, strerror(errno));
+        return 1;
+    }
+
+    printf("Motord PID: %d\n", motord_pid);
 
     int conn = pigpio_start(NULL, NULL);
 
@@ -113,17 +134,16 @@ int main(void) {
     signal(SIGINT, handler);
     signal(SIGPIPE, SIG_IGN);
 
+    if (conn < 0) {
+        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m pigpio_start: %s\n", pigpio_error(conn));
+        return 1;
+    }
+
+
     /* setup lines */
     set_mode(TRIG , 1); // output
     set_mode(ECHO , 0); // input
 
-
-    /* open fd for CMD_FIFO */
-    int CMD_FIFO_FD = -1;
-    while ((CMD_FIFO_FD = open(CMD_FIFO, O_WRONLY)) < 0) {
-        perror("\033[33mWARNING: open CMD_FIFO_FD\033[0m");
-        usleep(10000);
-    }
 
     /* vars */
     float distance = 0, first_distance = 0;
@@ -139,50 +159,74 @@ int main(void) {
         uint32_t now = get_current_tick();
 
         if (distance) { // if not timeouted
+
             /* debug / verbose */
             //printf("distance:       %.2fcm\n", distance);
             //printf("first_distance: %.2fcm\n", first_distance);
 
             if (distance <= MAX_DISTANCE) {
-                if ((gpio_read(RIGHT_MOTORS) || gpio_read(LEFT_MOTORS))) { // temporary condition for test
-                    if (!waiting) {
-                        /* start timer */
-                        first_distance = distance;
-                        wait_time = now;
-                        waiting = true;
-                    }
-                    else {
-                        if ((now - wait_time) >= WAIT_TIME_US) { // if timer timeout
-                            if (first_distance >= distance) {
-                                printf("Object Detected: %.2fcm\n", distance);
-                                write(CMD_FIFO_FD, "STOP", sizeof("STOP")); // send STOP to motord to stop motors
+                if (!waiting) {
+                    /* start timer */
+                    first_distance = distance;
+                    wait_time = now;
+                    waiting = true;
+                }
+                else {
+                    if ((now - wait_time) >= WAIT_TIME_US) { // if timer timeout
+                        if (first_distance >= distance) {
+                            if (!blocked) {
+                                printf("Obstacle Detected: %.2fcm\n", distance);
+                                kill(motord_pid, SIGUSR1);
+                                blocked = true;
                             }
-
-                            waiting = false;
                         }
+
+                        waiting = false;
                     }
                 }
             }
             else {
                 first_distance = 0;
                 waiting = false;
+
+                if (blocked) {
+                    kill(motord_pid, SIGUSR2);
+                    blocked = false;
+                }
             }
         }
         else {
             first_distance = 0;
             waiting = false;
+
+            if (blocked) {
+                kill(motord_pid, SIGUSR2);
+                blocked = false;
+            }
         }
 
-        usleep(50000); // main loop delay
+        /*
+         * Main loop delay (in microseconds).
+         *
+         * Loop frequency (Hz) ~= 1,000,000 / delay_us
+         *
+         * Example:
+         *   usleep(50000)  -> 1,000,000 / 50,000  = 20 Hz  (~20 measurements/sec)
+         *   usleep(20000)  -> 1,000,000 / 20,000  = 50 Hz
+         *   usleep(100000) -> 1,000,000 / 100,000 = 10 Hz
+         *
+         * Note:
+         *   Actual frequency will be slightly lower due to execution time
+         *   of distance measurement and other processing inside the loop.
+         */
+        usleep(50000);
     }
     
     pigpio_stop();
 
-    if (CMD_FIFO_FD > 0)
-        close(CMD_FIFO_FD);
+    kill(motord_pid, SIGUSR2); // unblock motord before exit
 
     puts("\nexiting...");
 
     return 0;
 }
-
