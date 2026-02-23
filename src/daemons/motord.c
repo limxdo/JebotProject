@@ -11,25 +11,36 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* FIFO files path */
-#define CMD_FIFO        "/tmp/robot-cmd"
-#define REPLY_FIFO      "/tmp/robot-reply"
+/* files */
+#define CMD_FIFO    "/tmp/motord-cmd"
+#define REPLY_FIFO  "/tmp/motord-reply"
+#define PIDFILE     "/tmp/motord.pid"
+
 
 /* GPIOs */
 #define  RIGHT_MOTORS   17
 #define  LEFT_MOTORS    27
 
+
 /* global vars */
-bool RUNNING = true;        // main loop
-uint64_t cmd_timer = 0;     // timer of command
-bool do_reply = false;      // know if do reply
-int move_ret_reply = -1;    // last move() return reply to do reply
+volatile bool RUNNING = true;   // main loop
+volatile bool blocked = false;  // if ultrasonicd detect an obstacle, send signal to motord to block any FORWARD request
+bool do_reply = false;          // know if reply
+int move_ret = -1;              // move() return
+uint64_t cmd_timer = 0;         // timer of command
 
 
 /* handler of signals */
 void handler(int signum) {
-    RUNNING = false;    // stop the loop
-    puts("");   // separator
+    if (signum == SIGUSR1) {
+        blocked = true;
+    }
+    else if (signum == SIGUSR2) {
+        blocked = false;
+    }
+    else if (signum == SIGINT || signum == SIGTERM) {
+        RUNNING = false; // stop the loop
+    }
 }
 
 /* timer in ms */
@@ -53,6 +64,14 @@ enum cmd_type {
     CMD_UNKNOWN
 };
 
+/* enum reply types */
+enum reply_type {
+    REPLY_SUCCESS,
+    REPLY_FAILED,
+    REPLY_SKIPPED,
+    REPLY_BLOCKED
+};
+
 /* struct to store command & args from CMD_FIFO */
 struct cmd_args {
     enum cmd_type type;
@@ -72,9 +91,11 @@ void parse_cmd(struct cmd_args *request_args, char *request) {
     request_args->type = CMD_UNKNOWN;
     request_args->seconds = 0;
     request_args->reply = false;
+    if (request == NULL) // uses to set default values in struct & exit 
+        return;
 
-    char *argptr;   // strtok
-    char *endptr;    // for strtol
+    char *argptr; // strtok
+    char *endptr; // strtol
 
     /* first argument */
     argptr = strtok(request, " ");
@@ -224,27 +245,38 @@ int move(enum cmd_type type, long seconds) {
 }
 
 /* reply function */
-void reply(int move_ret) {
-    /*
-     * move_ret can get it from move() function
-     */
+void reply(enum reply_type type) {
 
     usleep(20000); // delay before replying
 
     int REPLY_FIFO_FD = -1;
-    char status[16];
-    strcpy(status, move_ret < 0 ? "FAILED" : "SUCCESS");
+    char msg[16];
+
+    switch (type) {
+        case REPLY_SUCCESS:
+            strcpy(msg, "SUCCESS");
+            break;
+        case REPLY_FAILED:
+            strcpy(msg, "FAILED");
+            break;
+        case REPLY_SKIPPED:
+            strcpy(msg, "SKIPPED");
+            break;
+        case REPLY_BLOCKED:
+            strcpy(msg, "BLOCKED");
+            break;
+    }
 
     /* open REPLY_FIFO */
     if ((REPLY_FIFO_FD = open(REPLY_FIFO, O_WRONLY | O_NONBLOCK)) < 0) {
-        fprintf(stderr, "\033[31mREPLY: ERROR\033[0m (%s)\n", strerror(errno));
+        fprintf(stderr, "REPLY: \033[31mERROR\033[0m (%s)\n", strerror(errno));
         return;
     }
     else {
-        if (write(REPLY_FIFO_FD, status, strlen(status)) < 0) {
-            fprintf(stderr, "\033[31mREPLY: WRITE ERROR\033[0m (%s)\n", strerror(errno));
+        if (write(REPLY_FIFO_FD, msg, strlen(msg)) < 0) {
+            fprintf(stderr, "REPLY: \033[31mWRITE ERROR\033[0m (%s)\n", strerror(errno));
         } else {
-            printf("\033[32mREPLY:\033[0m (SUCCESS)\n");
+            printf("REPLY: \033[32mSUCCESS\033[0m\n");
         }
 
         close(REPLY_FIFO_FD);
@@ -253,18 +285,33 @@ void reply(int move_ret) {
 
 int main(void) {
 
-    printf("PID: %d\n\n", getpid());
+    /* write PID to PIDFILE */
+    FILE *pid_f = fopen(PIDFILE, "w");
+    if (!pid_f) {
+        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m fopen %s: %s\n", PIDFILE, strerror(errno));
+        return 1;
+    }
+    /* write PID */
+    fprintf(pid_f, "%d", getpid());
+    fclose(pid_f);
 
-    /* connect to pigpio daemon */
+
+    printf("PID: %d\n", getpid());
+
+    /* connect to pigpiod */
     int conn = pigpio_start(NULL, NULL); // (NULL, NULL) uses to connect to local gpio daemon (pigpiod)
 
-    /* signal handling */
+    /* exit handlers */
     signal(SIGINT, handler);
     signal(SIGTERM, handler);
     signal(SIGPIPE, SIG_IGN);
 
+    /* blocking handlers */
+    signal(SIGUSR1, handler);
+    signal(SIGUSR2, handler);
+
     if (conn < 0) {
-        fprintf(stderr, "\033[31mConnection failed:\033[0m %s\n", pigpio_error(conn));
+        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m pigpio_start: %s\n", pigpio_error(conn));
         return 1;
     }
 
@@ -280,53 +327,74 @@ int main(void) {
 
     /* creating CMD_FIFO file */
     while (mkfifo(CMD_FIFO, 0666) < 0) {
+        fprintf(stderr, "\033[33mWARNING:\033[0m mkfifo %s: %s\n", CMD_FIFO, strerror(errno));
         unlink(CMD_FIFO);
-        fprintf(stderr, "\033[33mWARNING: mkfifo %s\033[0m: %s\n", CMD_FIFO, strerror(errno));
         usleep(10000) ;
     }
-    //printf("\033[32mCreating\033[0m '%s' \033[32mSuccess\033[0m\n", CMD_FIFO); // (verbose)
-    chmod(CMD_FIFO, 0666);
+    chmod(CMD_FIFO, 0622);
 
     /* open fd for CMD_FIFO */
     while ((CMD_FIFO_FD = open(CMD_FIFO, O_RDONLY | O_NONBLOCK)) < 0) {
-        perror("\033[33mWARNING: open CMD_FIFO_FD\033[0m");
+        fprintf(stderr, "\033[33mWARNING:\033[0m open %s: %s", CMD_FIFO, strerror(errno));
         usleep(10000);
     }
 
-
     while (mkfifo(REPLY_FIFO, 0666) < 0) {
+        fprintf(stderr, "\033[33mWARNING:\033[0m mkfifo %s: %s\n", REPLY_FIFO, strerror(errno));
         unlink(REPLY_FIFO);
-        fprintf(stderr, "\033[33mWARNING: mkfifo %s: \033[0m: %s\n", REPLY_FIFO, strerror(errno));
         usleep(10000) ;
     }
-    chmod(REPLY_FIFO, 0666);
-    //printf("\033[32mCreating\033[0m '%s' \033[32mSuccess\033[0m\n", REPLY_FIFO); // (verbose)
+    chmod(REPLY_FIFO, 0644);
 
     /*******************************************************/
 
     char request[256];
     ssize_t rn;
-    int move_ret = 0;
 
     struct cmd_args request_args;
+    parse_cmd(&request_args, NULL);
 
     puts("\n|********** Motord Is Started **********|\n");
     while(RUNNING) {
 
+        /* if exists command, check if command finished */
         if (cmd_timer && now_ms() >= cmd_timer) {
             move(CMD_STOP, 0);
+            printf("EXECUTION: \033[32mSUCCESS\033[0m\n");
+            /* if need to reply */
             if (do_reply) {
                 do_reply = false;
-                reply(move_ret_reply);
-                move_ret_reply = -1;
+                reply(REPLY_SUCCESS);
+                move_ret = -1;
             }
+            /* reset values */
+            parse_cmd(&request_args, NULL);
+        }
+        else if (request_args.type == CMD_MOVE_FORWARD && blocked) { // block the command if already executing
+            printf("EXECUTION: \033[33mBLOCKED\033[0m\n");
+            move(CMD_STOP, 0);
+            if (do_reply) {
+                reply(REPLY_BLOCKED);
+                do_reply = false;
+            }
+            /* reset values to avoid print loop */
+            parse_cmd(&request_args, NULL);
         }
 
-        rn = read(CMD_FIFO_FD, request, sizeof(request)-1);
+        rn = read(CMD_FIFO_FD, request, sizeof(request)-1); // -1 to add '\0'
         if (rn > 0) {
             request[rn] = '\0';
 
-            printf("\033[32mRECEIVED COMMAND:\033[0m '%s'\n", request);
+            if (cmd_timer) {
+                printf("EXECUTION: \033[33mSKIPPED\033[0m (%.2f seconds left)\n", (cmd_timer - now_ms()) / 1000.0 /* convert to seconds (float) */ );
+                if (do_reply) {
+                    move(CMD_STOP, 0);
+                    reply(REPLY_SKIPPED);
+                    do_reply = false;
+                }
+            }
+
+            printf("RECEIVED COMMAND: '\033[90m%s\033[0m'\n", request);
 
             parse_cmd(&request_args, request);
 
@@ -346,6 +414,9 @@ int main(void) {
                 case CMD_TURN_LEFT:
                     printf("CMD_TURN_LEFT\n");
                     break;
+                case CMD_STOP:
+                    printf("CMD_STOP\n");
+                    break;
                 case CMD_UNKNOWN:
                     printf("CMD_UNKNOWN\n");
                     break;
@@ -356,35 +427,45 @@ int main(void) {
 
             /* checking */
             if (request_args.type == CMD_UNKNOWN) {
-                fprintf(stderr, "\033[31mERORR: INVALID COMMAND\033[0m\n");
-                continue;
+                fprintf(stderr, "\033[31mERORR:\033[0m INVALID COMMAND\n");
+                /* reset values */
+                parse_cmd(&request_args, NULL);
             }
             else if ((request_args.type == CMD_MOVE_FORWARD || request_args.type == CMD_MOVE_BACK) && request_args.seconds <= 0) {
-                fprintf(stderr, "\033[31mERORR: MISSING SECONDS\033[0m\n");
-                continue;
+                fprintf(stderr, "\033[31mERORR:\033[0m MISSING SECONDS\n");
+                parse_cmd(&request_args, NULL);
             }
             else if ((request_args.type == CMD_TURN_RIGHT || request_args.type == CMD_TURN_LEFT) && request_args.seconds) {
-                fprintf(stderr, "\033[31mERORR: INVALID OPTIONS\033[0m\n");
-                continue;
+                fprintf(stderr, "\033[31mERORR:\033[0m INVALID OPTIONS\n");
+                parse_cmd(&request_args, NULL);
+            }
+            else if (request_args.type == CMD_MOVE_FORWARD && blocked) { // block command before executing
+                fprintf(stderr, "EXECUTION: \033[33mBLOCKED\033[0m\n");
+                if (request_args.reply) {
+                    reply(REPLY_BLOCKED);
+                }
+                parse_cmd(&request_args, NULL);
             }
             else {
                 move_ret = move(request_args.type, request_args.seconds);
 
-                if (move_ret < 0)
-                    fprintf(stderr, "\033[32mEXECUTION:\033[0m FAILED (%s)\n", pigpio_error(move_ret));
-                else
-                    printf("\033[32mEXECUTION:\033[0m SUCCESS\n");
-
-                if (request_args.reply && move_ret < 0) {
-                    reply(move_ret);
+                if (move_ret < 0) {
+                    fprintf(stderr, "EXECUTION: \033[31mFAILED\033[0m (%s)\n", pigpio_error(move_ret));
+                    if (request_args.reply)
+                        reply(REPLY_FAILED);
+                    move_ret = -1;
+                }
+                else if (request_args.type == CMD_STOP) {
+                    fprintf(move_ret < 0 ? stderr : stdout, "EXECUTION: %s\033[0m\n", move_ret < 0 ? "\033[31mFAILED" : "\033[32mSUCCESS");
+                    if (request_args.reply)
+                        reply(move_ret < 0 ? REPLY_FAILED : REPLY_SUCCESS);
                 }
                 else if (request_args.reply) {
                     do_reply = true;
-                    move_ret_reply = move_ret;
                 }
                 else {
                     do_reply = false;
-                    move_ret_reply = -1;
+                    move_ret = -1;
                 }
             }
         }
@@ -401,20 +482,22 @@ int main(void) {
 
     pigpio_stop(); // disconnect from daemon (pigpiod)
 
-    /* check if FDs is opened and close it */
+    /* double check */
     if (CMD_FIFO_FD > 0)
         close(CMD_FIFO_FD);
 
     /* remove FIFO files */
     if (unlink(CMD_FIFO) < 0)
-        fprintf(stderr, "\033[33mWARNING: unlink %s:\033[0m %s", CMD_FIFO, strerror(errno));
+        fprintf(stderr, "\033[33mWARNING:\033[0m unlink %s: %s", CMD_FIFO, strerror(errno));
 
     if (unlink(REPLY_FIFO) < 0)
-        fprintf(stderr, "\033[33mWARNING: unlink %s:\033[0m %s", REPLY_FIFO, strerror(errno));
+        fprintf(stderr, "\033[33mWARNING:\033[0m unlink %s: %s", REPLY_FIFO, strerror(errno));
+
+    if (unlink(PIDFILE) < 0)
+        fprintf(stderr, "\033[33mWARNING:\033[0m unlink %s: %s", PIDFILE, strerror(errno));
 
 
     puts("\nexiting...");
 
     return 0;
 }
-
