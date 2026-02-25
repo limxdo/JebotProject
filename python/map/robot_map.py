@@ -58,6 +58,7 @@ it takes Map and begining point and end point and return a list points it is lik
 #A*search algorithm
 def path(Map : np.array,start_point:tuple,end_point:tuple) -> list:
     #متغيرات
+    hight,wight = np.shape(Map) # get map's dimensions
     start_point = tuple(start_point) # ضمان نوع البيانات حيكون صحيح
     end_point = tuple(end_point) # ضمان نوع البيانات حيكون صحيح
     lst_all_points = [] # متغير كل نقطة بس شفناها حتى ما مشينا فيها
@@ -108,5 +109,5 @@ def path(Map : np.array,start_point:tuple,end_point:tuple) -> list:
                 heapq.heappush(lst_all_points,(distance,point)) # اضافتها الى هيكله البيانات المناسبة
 
 #طريقة استخدام الكود
-# way = path(Map,start_point,end_point)
+# way = path(Map,(0,0),(2,2))
 # commands = command(way,vector)
