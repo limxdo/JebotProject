@@ -109,5 +109,13 @@ def path(Map : np.array,start_point:tuple,end_point:tuple) -> list:
                 heapq.heappush(lst_all_points,(distance,point)) # اضافتها الى هيكله البيانات المناسبة
 
 #طريقة استخدام الكود
+# Map = np.zeros((3,3))
 # way = path(Map,(0,0),(2,2))
-# commands = command(way,vector)
+# commands = command(way,"down")
+
+# Map شكل الخريطة
+# [
+#   [0,0,0],
+#   [0,0,0],
+#   [0,0,0]
+# ]
