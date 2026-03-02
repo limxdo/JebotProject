@@ -88,15 +88,16 @@ def simple(value: str, data: dict):
         if outdata[key] == high: # << take the strongest key in 'outdata'
             return key           # <<
 
-# example to use
+"""
+example to use
 
-# data = {
-#     "go to manager room": "GOTO_MANAGER-ROOM",
-#     "go to first class room": "GOTO_FIRST-CLASS",
-#     "go to second class room": "GOTO_SECOND-CLASS",
-#     "go to third class room": "GOTO_THIRD-CLASS",
-# }
+data = {
+    "go to manager room": "GOTO_MANAGER-ROOM",
+    "go to first class room": "GOTO_FIRST-CLASS",
+    "go to second class room": "GOTO_SECOND-CLASS",
+    "go to third class room": "GOTO_THIRD-CLASS",
+}
 
-# key = simple('manager', data) # return: go to manager room
-# print(data[key] if key else None) # GOTO_MANAGER-ROOM
-
+key = simple('manager', data) # return: go to manager room
+print(data[key] if key else None) # GOTO_MANAGER-ROOM
+"""
