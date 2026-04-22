@@ -2,6 +2,7 @@
 #define PWM_SYSFS_H
 
 #define PWM_INIT {0}
+#define PWM_PERIOD_MAX 20000000
 
 #include <stdbool.h>
 #include <stdint.h>
