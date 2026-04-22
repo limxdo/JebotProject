@@ -1,4 +1,5 @@
 #include "../include/runtime.h"
+
 #include <linux/i2c-dev.h>
 #include <sys/ioctl.h>
 #include <lgpio.h>
@@ -19,15 +20,12 @@ volatile bool running = true;
 #define I2C_BUS "/dev/i2c-1"
 #define RSHUNT 0.0015 // (75mV / 50A) Ohms
 
-/* runtime path */
-#define POWERD_RUNTIME_PATH "powerd"
-
 /************** INA219 **************/
-#define INA219_RUNTIME_PATH "ina219"
-#define INA219_VSHUNT_FILE   INA219_RUNTIME_PATH "/shunt_voltage"
-#define INA219_VBUS_FILE     INA219_RUNTIME_PATH "/bus_voltage"
-#define INA219_POWER_FILE    INA219_RUNTIME_PATH "/power"
-#define INA219_CURRENT_FILE  INA219_RUNTIME_PATH "/current"
+#define INA219_RUNTIME "ina219"
+#define INA219_VSHUNT_PATH   INA219_RUNTIME "/shunt_voltage"
+#define INA219_VBUS_PATH     INA219_RUNTIME "/bus_voltage"
+#define INA219_POWER_PATH    INA219_RUNTIME "/power"
+#define INA219_CURRENT_PATH  INA219_RUNTIME "/current"
 
 
 #define INA219_ADDR        0x40
@@ -70,9 +68,11 @@ volatile bool running = true;
 /* Calibrations */
 #define INA219_CAL_FACTOR 0.04096
 
-/* Current_LSB = Maximum_Expected_Current / 32767   */
-/* (32767 is 16-bit Max) */
-#define INA219_CURRENT_LSB  (35.0 / 32767.0)
+/* Current_LSB = Maximum_Expected_Current / 32767 */
+/* Max_Expected_Current = ~55A (measured during hard inrush test) */
+#define INA219_CURRENT_LSB  (55.0 / 32767.0)
+
+/* Power_LSB = 20 * Current_LSB */
 #define INA219_POWER_LSB    (20 * INA219_CURRENT_LSB)
 
 #define INA219_CALIBRATION (INA219_CAL_FACTOR / (INA219_CURRENT_LSB * RSHUNT))
@@ -188,46 +188,40 @@ float ina219_get_power(int fd, float lsb) {
 }
 
 void ina219_get_all(struct ina219 *ina) {
-    ina->vshunt_mV  = ina219_get_vshunt(ina->i2c_fd);
+    ina->vshunt_mV = ina219_get_vshunt(ina->i2c_fd);
     ina->vbus_V    = ina219_get_vbus(ina->i2c_fd);
     ina->current_A = ina219_get_current(ina->i2c_fd, ina->current_lsb);
     ina->power_W   = ina219_get_power(ina->i2c_fd, ina->power_lsb);
 }
 
 void ina219_write_values(struct ina219 *ina) {
-    char buf[32];
-
     /* Vshunt */
-    snprintf(buf, sizeof(buf), "%.3f\n", ina->vshunt_mV);
     ftruncate(ina->vshunt_fd, 0);
     lseek(ina->vshunt_fd, 0, SEEK_SET);
-    write(ina->vshunt_fd, buf, strlen(buf));
+    dprintf(ina->vshunt_fd, "%.3f\n", ina->vshunt_mV);
 
     /* Vbus */
-    snprintf(buf, sizeof(buf), "%.3f\n", ina->vbus_V);
     ftruncate(ina->vbus_fd, 0);
     lseek(ina->vbus_fd, 0, SEEK_SET);
-    write(ina->vbus_fd, buf, strlen(buf));
+    dprintf(ina->vbus_fd, "%.3f\n", ina->vbus_V);
 
     /* Current */
-    snprintf(buf, sizeof(buf), "%.4f\n", ina->current_A);
     ftruncate(ina->current_fd, 0);
     lseek(ina->current_fd, 0, SEEK_SET);
-    write(ina->current_fd, buf, strlen(buf));
+    dprintf(ina->current_fd, "%.4f\n", ina->current_A);
 
     /* Power */
-    snprintf(buf, sizeof(buf), "%.4f\n", ina->power_W);
     ftruncate(ina->power_fd, 0);
     lseek(ina->power_fd, 0, SEEK_SET);
-    write(ina->power_fd, buf, strlen(buf));
+    dprintf(ina->power_fd, "%.4f\n", ina->power_W);
 }
 
 
 /********** X1201 (PowerHat) **********/
-#define X1201_RUNTIME_PATH "x1201"
-#define X1201_VOLTAGE_FILE    X1201_RUNTIME_PATH "/voltage"
-#define X1201_CAPACITY_FILE   X1201_RUNTIME_PATH "/capacity"
-#define X1201_CHARGING_FILE   X1201_RUNTIME_PATH "/charging"
+#define X1201_RUNTIME "x1201"
+#define X1201_VOLTAGE_PATH  X1201_RUNTIME "/voltage"
+#define X1201_CAPACITY_PATH X1201_RUNTIME "/capacity"
+#define X1201_CHARGING_PATH X1201_RUNTIME "/charging"
 
 #define X1201_ADDR         0x36
 
@@ -265,7 +259,7 @@ float x1201_get_capacity(int fd) {
     
     float capacity = capacity_raw / 256.0;
 
-    return capacity;
+    return capacity > 100 ? 100 : capacity;
 }
 
 float x1201_get_voltage(int fd) {
@@ -294,25 +288,20 @@ void x1201_get_all(struct x1201 *hat) {
 }
 
 void x1201_write_values(struct x1201 *hat) {
-    char buf[32];
-
     /* Voltage */
-    snprintf(buf, sizeof(buf), "%.3f\n", hat->voltage_V);
     ftruncate(hat->voltage_fd, 0);
     lseek(hat->voltage_fd, 0, SEEK_SET);
-    write(hat->voltage_fd, buf, strlen(buf));
+    dprintf(hat->voltage_fd, "%.3f\n", hat->voltage_V);
 
     /* Capacity */
-    snprintf(buf, sizeof(buf), "%.2f\n", hat->capacity);
     ftruncate(hat->capacity_fd, 0);
     lseek(hat->capacity_fd, 0, SEEK_SET);
-    write(hat->capacity_fd, buf, strlen(buf));
+    dprintf(hat->capacity_fd, "%.2f\n", hat->capacity);
 
     /* Charging */
-    snprintf(buf, sizeof(buf), "%d\n", hat->charging);
     ftruncate(hat->charging_fd, 0);
     lseek(hat->charging_fd, 0, SEEK_SET);
-    write(hat->charging_fd, buf, strlen(buf));
+    dprintf(hat->charging_fd, "%d\n", hat->charging);
 }
 
 
@@ -348,19 +337,18 @@ int main(void) {
     lgGpioClaimInput(gpio, LG_SET_PULL_NONE, X1201_POWER_LOSS_GPIO);
     lgGpioClaimOutput(gpio, LG_SET_OUTPUT, X1201_CHARGING_CTRL_GPIO, 0); // enable charging
 
-
-    /* INA219 */
+    /* INA219 */ 
     struct ina219 ina219 = {0};
 
     ina219.i2c_fd = open(I2C_BUS, O_RDWR);
     if (ina219.i2c_fd < 0) {
-        fprintf(stderr, "FATAL ERROR: open %s (%s): %s\n", I2C_BUS, "INA219", strerror(errno));
+        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m open %s (%s): %s\n", I2C_BUS, "INA219", strerror(errno));
         exit_status = 1;
         goto exit;
     }
 
     if (ioctl(ina219.i2c_fd, I2C_SLAVE, INA219_ADDR) < 0) {
-        fprintf(stderr, "FATAL ERROR: ioctl 0x%x: %s\n", INA219_ADDR, strerror(errno));
+        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m ioctl 0x%x: %s\n", INA219_ADDR, strerror(errno));
         exit_status = 1;
         goto exit;
     }
@@ -376,11 +364,11 @@ int main(void) {
     usleep(10000);
     
     /* INA219 runtime */
-    runtime_mkdir(INA219_RUNTIME_PATH, 0755);
-    ina219.vshunt_fd  = runtime_open(INA219_VSHUNT_FILE, O_WRONLY | O_CREAT, 0644);
-    ina219.vbus_fd    = runtime_open(INA219_VBUS_FILE, O_WRONLY | O_CREAT, 0644);
-    ina219.current_fd = runtime_open(INA219_CURRENT_FILE, O_WRONLY | O_CREAT, 0644);
-    ina219.power_fd   = runtime_open(INA219_POWER_FILE, O_WRONLY | O_CREAT, 0644);
+    runtime_mkdir(INA219_RUNTIME, 0755);
+    ina219.vshunt_fd  = runtime_open(INA219_VSHUNT_PATH, O_WRONLY | O_CREAT, 0644);
+    ina219.vbus_fd    = runtime_open(INA219_VBUS_PATH, O_WRONLY | O_CREAT, 0644);
+    ina219.current_fd = runtime_open(INA219_CURRENT_PATH, O_WRONLY | O_CREAT, 0644);
+    ina219.power_fd   = runtime_open(INA219_POWER_PATH, O_WRONLY | O_CREAT, 0644);
 
 
     /* X1201 */
@@ -401,11 +389,10 @@ int main(void) {
     }
 
     /* X1201 runtime */
-    runtime_mkdir(X1201_RUNTIME_PATH, 0755);
-    x1201.voltage_fd  = runtime_open(X1201_VOLTAGE_FILE, O_WRONLY | O_CREAT, 0644);
-    x1201.capacity_fd = runtime_open(X1201_CAPACITY_FILE, O_WRONLY | O_CREAT, 0644);
-    x1201.charging_fd = runtime_open(X1201_CHARGING_FILE, O_WRONLY | O_CREAT, 0644);
-
+    runtime_mkdir(X1201_RUNTIME, 0755);
+    x1201.voltage_fd  = runtime_open(X1201_VOLTAGE_PATH, O_WRONLY | O_CREAT, 0644);
+    x1201.capacity_fd = runtime_open(X1201_CAPACITY_PATH, O_WRONLY | O_CREAT, 0644);
+    x1201.charging_fd = runtime_open(X1201_CHARGING_PATH, O_WRONLY | O_CREAT, 0644);
 
     printf("PID: %d\n", getpid());
     puts("\n|********** Powerd Is Started **********|");
@@ -416,7 +403,7 @@ int main(void) {
         x1201_get_all(&x1201);
         x1201_write_values(&x1201);
 
-        usleep(500000);
+        usleep(1);
     }
 
 exit:
