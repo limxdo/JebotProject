@@ -1,33 +1,54 @@
-#include <pigpiod_if.h>
+#include "../include/runtime.h"
+#include "../include/pwm_sysfs.h"
+#include "../include/timer.h"
+
+#include <lgpio.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <signal.h>
 #include <errno.h>
-#include <time.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdint.h>
 
-/* files */
-#define CMD_FIFO    "/tmp/motord-cmd"
-#define REPLY_FIFO  "/tmp/motord-reply"
-#define PIDFILE     "/tmp/motord.pid"
+/* runtime paths */
+#define MOTORD_RUNTIME_PATH RUNTIME_PATH "/motord"
+
+#define MOTORD_CMD_FIFO   MOTORD_RUNTIME_PATH "/cmd"
+#define MOTORD_REPLY_FIFO MOTORD_RUNTIME_PATH "/reply"
 
 
-/* GPIOs */
-#define  RIGHT_MOTORS   17
-#define  LEFT_MOTORS    27
+/* PWMs */
+#define RIGHT_RPWM    pwm0
+#define RIGHT_LPWM    pwm1
+#define LEFT_RPWM     pwm2
+#define LEFT_LPWM     pwm3
+
+#define RIGHT_FORWARD RIGHT_RPWM
+#define RIGHT_BACK    RIGHT_LPWM
+#define LEFT_FORWARD  LEFT_RPWM
+#define LEFT_BACK     LEFT_LPWM
+
+/* PWM config */
+#define PERIOD     PWM_PERIOD_MAX
+#define DUTY_CYCLE PERIOD
 
 
 /* global vars */
-volatile bool RUNNING = true;   // main loop
+volatile bool running = true;   // main loop
 volatile bool blocked = false;  // if ultrasonicd detect an obstacle, send signal to motord to block any FORWARD request
 bool do_reply = false;          // know if reply
 int move_ret = -1;              // move() return
+int gpio = -1;                  // gpio handler (lgpio)
 uint64_t cmd_timer = 0;         // timer of command
+
+pwm_t pwm0 = PWM_INIT,
+      pwm1 = PWM_INIT,
+      pwm2 = PWM_INIT,
+      pwm3 = PWM_INIT;
 
 
 /* handler of signals */
@@ -39,90 +60,77 @@ void handler(int signum) {
         blocked = false;
     }
     else if (signum == SIGINT || signum == SIGTERM) {
-        RUNNING = false; // stop the loop
+        running = false; // stop the loop
     }
 }
 
-/* timer in ms */
-uint64_t now_ms(void) {
-    struct timespec ts;
-
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-
-    /*          convert sec to ms                  convert ns to ms */
-    return ((uint64_t)ts.tv_sec * 1000ULL) + ((uint64_t)ts.tv_nsec / 1000000ULL);
-}
-
-
-/* enum command types */
-enum cmd_type {
+/* command types */
+typedef enum {
     CMD_MOVE_FORWARD,
-    CMD_MOVE_BACK,
+    CMD_MOVE_BACKWARD,
     CMD_TURN_RIGHT,
     CMD_TURN_LEFT,
     CMD_STOP,
     CMD_UNKNOWN
-};
+} cmd_t;
 
-/* enum reply types */
-enum reply_type {
+/* reply types */
+typedef enum {
     REPLY_SUCCESS,
     REPLY_FAILED,
     REPLY_SKIPPED,
     REPLY_BLOCKED
-};
+} reply_t;
 
-/* struct to store command & args from CMD_FIFO */
-struct cmd_args {
-    enum cmd_type type;
-    long seconds;
+/* struct to store command & args from MOTORD_CMD_FIFO */
+struct request_args {
+    cmd_t cmd;
+    unsigned long seconds;
     bool reply;
 };
-/* NOTE: 'seconds' in struct currently represents the duration for which the motors run.
- * Once the wheels are available and we know their exact diameter and the motor speed,
- * this value can be converted to a more meaningful unit (e.g., centimeters traveled, 
- * or any other distance metric). For now, we keep it in seconds as a temporary placeholder.
+/* NOTE: 'seconds' is temporary. Will be replaced with centimeters (cm)
+ * once encoders are properly calibrated and integrated.
  */
 
 /* function to filter a struct from one string */
-void parse_cmd(struct cmd_args *request_args, char *request) {
+void parse_cmd(struct request_args *request_args, char *request) {
 
     /* default values */
-    request_args->type = CMD_UNKNOWN;
+    request_args->cmd = CMD_UNKNOWN;
     request_args->seconds = 0;
     request_args->reply = false;
     if (request == NULL) // uses to set default values in struct & exit 
         return;
 
     char *argptr; // strtok
-    char *endptr; // strtol
+    char *endptr; // strtoul
 
     /* first argument */
     argptr = strtok(request, " ");
 
-    /* get type of request_args->type */
+    /* get type of request_args->cmd */
     if (argptr == NULL) { // if empty
         return;
     }
     else {
         /* place values with ENUMs */
         if (strcmp(argptr, "MOVE_FORWARD") == 0) {
-            request_args->type = CMD_MOVE_FORWARD;
+            request_args->cmd = CMD_MOVE_FORWARD;
         }
-        else if (strcmp(argptr, "MOVE_BACK") == 0) {
-            request_args->type = CMD_MOVE_BACK;
+        else if (strcmp(argptr, "MOVE_BACKWARD") == 0) {
+            request_args->cmd = CMD_MOVE_BACKWARD;
         }
         else if (strcmp(argptr, "TURN_RIGHT") == 0) {
-            request_args->type = CMD_TURN_RIGHT;
+            request_args->cmd = CMD_TURN_RIGHT;
         }
         else if (strcmp(argptr, "TURN_LEFT") == 0) {
-            request_args->type = CMD_TURN_LEFT;
+            request_args->cmd = CMD_TURN_LEFT;
         }
         else if (strcmp(argptr, "STOP") == 0) {
-            request_args->type = CMD_STOP;
+            request_args->cmd = CMD_STOP;
         }
         else {
-            request_args->type = CMD_UNKNOWN;
+            request_args->cmd = CMD_UNKNOWN;
             return;
         }
     }
@@ -134,15 +142,15 @@ void parse_cmd(struct cmd_args *request_args, char *request) {
         return;
     }
     else {
-        /* if second is reply */
+        /* if arg2 is reply */
         if (strcmp(argptr, "--reply") == 0) {
             request_args->reply = true;
             return;
         }
         else {
             /* if seconds */
-            request_args->seconds = strtol(argptr, &endptr, 10);
-            if (endptr == argptr) {  // not a number
+            request_args->seconds = strtoul(argptr, &endptr, 10);
+            if (endptr == argptr || *endptr == '-') {  // not a number or negative number
                 request_args->seconds = 0;
             }
         }
@@ -162,203 +170,252 @@ void parse_cmd(struct cmd_args *request_args, char *request) {
 }
 
 /* main function to moving */
-int move(enum cmd_type type, long seconds) {
+int move(cmd_t cmd, unsigned long seconds) {
 
-    /* 
-     * NOTE: All GPIO operations in this function are currently temporary and for testing purposes only.
-     * The actual motors / motor drivers are not available yet.
-     * Currently, each GPIO controls two wheels (so 4 wheels total are split over 2 GPIOs).
-     * This setup can be easily updated once the real motors / motor drivers are integrated.
+    /*
+     * BTS7960 motor drivers connected to hardware PWM (sysfs).
+     * Two motors per driver (left/right sides).
+     * R_EN and L_EN are tied to 3.3V (always enabled).
+     * Control via RPWM (forward) and LPWM (backward).
+     * Encoder and gyro feedback not yet implemented.
      */
 
     /* convert sec to ms */
     seconds *= 1000;
-    int gpio_write_status;
+    int status;
 
-    unsigned int angle_90 = 2 * 1000; // 2 seconds (tmp) for example
+    unsigned long angle_90 = 850; // ms, will be replaced with gyro feedback
 
     /* execute command and error checking */
-    switch (type) {
-        case CMD_MOVE_FORWARD:
-            /* check if writing gpio success of failed */
-            if (
-                ((gpio_write_status = gpio_write(LEFT_MOTORS, 1)) < 0) ||
-                ((gpio_write_status = gpio_write(RIGHT_MOTORS, 1)) < 0)
-            ) {
-                move(CMD_STOP, 0); // try to stop motors
-                return gpio_write_status;
-            }
+    switch (cmd) {
+    case CMD_MOVE_FORWARD:
+        pwm_set_duty_cycle(&RIGHT_FORWARD, DUTY_CYCLE);
+        pwm_set_duty_cycle(&LEFT_FORWARD, DUTY_CYCLE);
 
-            /* start timer if success */
-            cmd_timer = now_ms() + seconds;
-            break;
+        /* check if writing pwm */
+        if (
+            ((status = pwm_enable(&RIGHT_FORWARD, true)) < 0) ||
+            ((status = pwm_enable(&RIGHT_BACK, false)) < 0) ||
+            ((status = pwm_enable(&LEFT_FORWARD, true)) < 0) ||
+            ((status = pwm_enable(&LEFT_BACK, false)) < 0)
+        ) {
+            move(CMD_STOP, 0); // try to stop motors
+            return status;
+        }
 
-        case CMD_MOVE_BACK:
-            if (
-                ((gpio_write_status = gpio_write(LEFT_MOTORS, 1)) < 0) ||
-                ((gpio_write_status = gpio_write(RIGHT_MOTORS, 1)) < 0)
-            ) {
-                move(CMD_STOP, 0);
-                return gpio_write_status;
-            }
+        /* start timer if success */
+        cmd_timer = timer_now(TIMER_MS) + seconds;
+        break;
 
-            cmd_timer = now_ms() + seconds;
-            break;
+    case CMD_MOVE_BACKWARD:
+        pwm_set_duty_cycle(&RIGHT_BACK, DUTY_CYCLE);
+        pwm_set_duty_cycle(&LEFT_BACK, DUTY_CYCLE);
 
-        case CMD_TURN_RIGHT:
-            if (
-                ((gpio_write_status = gpio_write(LEFT_MOTORS, 1)) < 0) ||
-                ((gpio_write_status = gpio_write(RIGHT_MOTORS, 0)) < 0)
-            ) {
-                move(CMD_STOP, 0);
-                return gpio_write_status;
-            }
+        if (
+            ((status = pwm_enable(&RIGHT_FORWARD, false)) < 0) ||
+            ((status = pwm_enable(&RIGHT_BACK, true)) < 0) ||
+            ((status = pwm_enable(&LEFT_FORWARD, false)) < 0) ||
+            ((status = pwm_enable(&LEFT_BACK, true)) < 0)
+        ) {
+            move(CMD_STOP, 0);
+            return status;
+        }
 
-            cmd_timer = now_ms() + angle_90;
-            break;
+        cmd_timer = timer_now(TIMER_MS) + seconds;
+        break;
 
-        case CMD_TURN_LEFT:
-            if (
-                ((gpio_write_status = gpio_write(LEFT_MOTORS, 0)) < 0) ||
-                ((gpio_write_status = gpio_write(RIGHT_MOTORS, 1)) < 0)
-            ) {
-                move(CMD_STOP, 0);
-                return gpio_write_status;
-            }
+    case CMD_TURN_RIGHT:
+        pwm_set_duty_cycle(&RIGHT_BACK, PERIOD);
+        pwm_set_duty_cycle(&LEFT_FORWARD, PERIOD);
 
-            cmd_timer = now_ms() + angle_90;
-            break;
+        if (
+            ((status = pwm_enable(&RIGHT_FORWARD, false)) < 0) ||
+            ((status = pwm_enable(&RIGHT_BACK, true)) < 0) ||
+            ((status = pwm_enable(&LEFT_FORWARD, true)) < 0) ||
+            ((status = pwm_enable(&LEFT_BACK, false)) < 0)
+        ) {
+            move(CMD_STOP, 0);
+            return status;
+        }
 
-        case CMD_STOP:
-            /* do not call move(CMD_STOP, 0) again to avoid recursion if pigpiod failed */
-            if (
-                ((gpio_write_status = gpio_write(LEFT_MOTORS, 0)) < 0) ||
-                ((gpio_write_status = gpio_write(RIGHT_MOTORS, 0)) < 0)
-            )
-                return gpio_write_status;
+        cmd_timer = timer_now(TIMER_MS) + angle_90;
+        break;
 
-            cmd_timer = 0;
-            break;
+    case CMD_TURN_LEFT:
+        pwm_set_duty_cycle(&RIGHT_FORWARD, PERIOD);
+        pwm_set_duty_cycle(&LEFT_BACK, PERIOD);
+
+        if (
+            ((status = pwm_enable(&RIGHT_FORWARD, true)) < 0) ||
+            ((status = pwm_enable(&RIGHT_BACK, false)) < 0) ||
+            ((status = pwm_enable(&LEFT_FORWARD, false)) < 0) ||
+            ((status = pwm_enable(&LEFT_BACK, true)) < 0)
+        ) {
+            move(CMD_STOP, 0);
+            return status;
+        }
+
+        cmd_timer = timer_now(TIMER_MS) + angle_90;
+        break;
+
+    case CMD_STOP:
+        pwm_set_duty_cycle(&RIGHT_FORWARD, 0);
+        pwm_set_duty_cycle(&RIGHT_BACK, 0);
+        pwm_set_duty_cycle(&LEFT_FORWARD, 0);
+        pwm_set_duty_cycle(&LEFT_BACK, 0);
+
+        /* do not call move(CMD_STOP, 0) again to avoid recursion if pwm failed */
+        if (
+            ((status = pwm_enable(&RIGHT_FORWARD, false)) < 0) ||
+            ((status = pwm_enable(&RIGHT_BACK, false)) < 0) ||
+            ((status = pwm_enable(&LEFT_FORWARD, false)) < 0) ||
+            ((status = pwm_enable(&LEFT_BACK, false)) < 0)
+        )
+            return status;
+
+        cmd_timer = 0;
+        break;
+    
+    default:
+        return -1;
     }
 
-    return 1; // return true
+    return 0; // return true
 }
 
 /* reply function */
-void reply(enum reply_type type) {
+void reply(reply_t reply) {
 
     usleep(20000); // delay before replying
 
-    int REPLY_FIFO_FD = -1;
+    int reply_fifo_fd = -1;
     char msg[16];
 
-    switch (type) {
-        case REPLY_SUCCESS:
-            strcpy(msg, "SUCCESS");
-            break;
-        case REPLY_FAILED:
-            strcpy(msg, "FAILED");
-            break;
-        case REPLY_SKIPPED:
-            strcpy(msg, "SKIPPED");
-            break;
-        case REPLY_BLOCKED:
-            strcpy(msg, "BLOCKED");
-            break;
+    switch (reply) {
+    case REPLY_SUCCESS:
+        strcpy(msg, "SUCCESS\n");
+        break;
+    case REPLY_FAILED:
+        strcpy(msg, "FAILED\n");
+        break;
+    case REPLY_SKIPPED:
+        strcpy(msg, "SKIPPED\n");
+        break;
+    case REPLY_BLOCKED:
+        strcpy(msg, "BLOCKED\n");
+        break;
+    default:
+        return;
     }
 
-    /* open REPLY_FIFO */
-    if ((REPLY_FIFO_FD = open(REPLY_FIFO, O_WRONLY | O_NONBLOCK)) < 0) {
+    /* open MOTORD_REPLY_FIFO */
+    if ((reply_fifo_fd = open(MOTORD_REPLY_FIFO, O_WRONLY | O_NONBLOCK)) < 0) {
         fprintf(stderr, "REPLY: \033[31mERROR\033[0m (%s)\n", strerror(errno));
         return;
     }
     else {
-        if (write(REPLY_FIFO_FD, msg, strlen(msg)) < 0) {
+        if (write(reply_fifo_fd, msg, strlen(msg)) < 0) {
             fprintf(stderr, "REPLY: \033[31mWRITE ERROR\033[0m (%s)\n", strerror(errno));
         } else {
             printf("REPLY: \033[32mSUCCESS\033[0m\n");
         }
 
-        close(REPLY_FIFO_FD);
+        close(reply_fifo_fd);
     }
 }
 
 int main(void) {
 
-    /* write PID to PIDFILE */
-    FILE *pid_f = fopen(PIDFILE, "w");
-    if (!pid_f) {
-        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m fopen %s: %s\n", PIDFILE, strerror(errno));
-        return 1;
-    }
-    /* write PID */
-    fprintf(pid_f, "%d", getpid());
-    fclose(pid_f);
-
-
-    printf("PID: %d\n", getpid());
-
-    /* connect to pigpiod */
-    int conn = pigpio_start(NULL, NULL); // (NULL, NULL) uses to connect to local gpio daemon (pigpiod)
-
-    /* exit handlers */
+    /* exit signals */
     signal(SIGINT, handler);
     signal(SIGTERM, handler);
-    signal(SIGPIPE, SIG_IGN);
 
     /* blocking handlers */
     signal(SIGUSR1, handler);
     signal(SIGUSR2, handler);
 
-    if (conn < 0) {
-        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m pigpio_start: %s\n", pigpio_error(conn));
+    /* ignore signals */
+    signal(SIGPIPE, SIG_IGN);
+
+    int exit_status = 0;
+
+    if (runtime_init("motord", 0755) < 0) {
+        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m Runtime failed: %s\n", strerror(errno));
+        exit_status = 1;
+        goto exit;
+    }
+    runtime_pid(getpid());
+
+    printf("PID: %d\n", getpid());
+
+    /* open gpiochip */
+    gpio = lgGpiochipOpen(0);
+
+    if (gpio < 0) {
+        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m lgGpiochipOpen: %s\n", lguErrorText(gpio));
         return 1;
     }
 
-    /*
-     * 1 -> OUTPUT
-     * 0 -> INPUT
-     */
-    set_mode(LEFT_MOTORS, 1);
-    set_mode(RIGHT_MOTORS, 1);
-
-    /* robot-cmd FD */
-    int CMD_FIFO_FD = -1;
-
-    /* creating CMD_FIFO file */
-    while (mkfifo(CMD_FIFO, 0666) < 0) {
-        fprintf(stderr, "\033[33mWARNING:\033[0m mkfifo %s: %s\n", CMD_FIFO, strerror(errno));
-        unlink(CMD_FIFO);
-        usleep(10000) ;
-    }
-    chmod(CMD_FIFO, 0622);
-
-    /* open fd for CMD_FIFO */
-    while ((CMD_FIFO_FD = open(CMD_FIFO, O_RDONLY | O_NONBLOCK)) < 0) {
-        fprintf(stderr, "\033[33mWARNING:\033[0m open %s: %s", CMD_FIFO, strerror(errno));
-        usleep(10000);
+    /* Open PWMs */
+    if (
+        pwm_open(&pwm0, 0, 0) < 0 ||
+        pwm_open(&pwm1, 0, 1) < 0 ||
+        pwm_open(&pwm2, 0, 2) < 0 ||
+        pwm_open(&pwm3, 0, 3) < 0
+    ) {
+        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m pwm_open: %s\n", strerror(errno));
+        exit_status = 1;
+        goto exit;
     }
 
-    while (mkfifo(REPLY_FIFO, 0666) < 0) {
-        fprintf(stderr, "\033[33mWARNING:\033[0m mkfifo %s: %s\n", REPLY_FIFO, strerror(errno));
-        unlink(REPLY_FIFO);
-        usleep(10000) ;
+    pwm_set_period(&pwm0, PERIOD);
+    pwm_set_period(&pwm1, PERIOD);
+    pwm_set_period(&pwm2, PERIOD);
+    pwm_set_period(&pwm3, PERIOD);
+
+    pwm_set_duty_cycle(&pwm0, DUTY_CYCLE);
+    pwm_set_duty_cycle(&pwm1, DUTY_CYCLE);
+    pwm_set_duty_cycle(&pwm2, DUTY_CYCLE);
+    pwm_set_duty_cycle(&pwm3, DUTY_CYCLE);
+
+    /* creating MOTORD_CMD_FIFO file */
+    unlink(MOTORD_CMD_FIFO); // if exists
+    if (mkfifo(MOTORD_CMD_FIFO, 0622) < 0) {
+        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m mkfifo %s: %s\n", MOTORD_CMD_FIFO, strerror(errno));
+        exit_status = 1;
+        goto exit;
     }
-    chmod(REPLY_FIFO, 0644);
+    chmod(MOTORD_CMD_FIFO, 0622);
 
-    /*******************************************************/
+    /* open fd for MOTORD_CMD_FIFO */
+    int cmd_fifo_fd = -1;
+    if ((cmd_fifo_fd = open(MOTORD_CMD_FIFO, O_RDONLY | O_NONBLOCK)) < 0) {
+        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m open %s: %s\n", MOTORD_CMD_FIFO, strerror(errno));
+        exit_status = 1;
+        goto exit;
+    }
 
+    unlink(MOTORD_REPLY_FIFO);
+    if (mkfifo(MOTORD_REPLY_FIFO, 0644) < 0) {
+        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m mkfifo %s: %s\n", MOTORD_REPLY_FIFO, strerror(errno));
+        exit_status = 1;
+        goto exit;
+    }
+    chmod(MOTORD_REPLY_FIFO, 0644);
+
+
+    /* Starting the daemon */
     char request[256];
     ssize_t rn;
 
-    struct cmd_args request_args;
+    struct request_args request_args;
     parse_cmd(&request_args, NULL);
 
-    puts("\n|********** Motord Is Started **********|\n");
-    while(RUNNING) {
+    puts("\n|********** Motord Is Started **********|");
+    while(running) {
 
         /* if exists command, check if command finished */
-        if (cmd_timer && now_ms() >= cmd_timer) {
+        if (cmd_timer && timer_now(TIMER_MS) >= cmd_timer) {
             move(CMD_STOP, 0);
             printf("EXECUTION: \033[32mSUCCESS\033[0m\n");
             /* if need to reply */
@@ -370,7 +427,7 @@ int main(void) {
             /* reset values */
             parse_cmd(&request_args, NULL);
         }
-        else if (request_args.type == CMD_MOVE_FORWARD && blocked) { // block the command if already executing
+        else if (request_args.cmd == CMD_MOVE_FORWARD && blocked) { // block the command if already executing
             printf("EXECUTION: \033[33mBLOCKED\033[0m\n");
             move(CMD_STOP, 0);
             if (do_reply) {
@@ -381,12 +438,13 @@ int main(void) {
             parse_cmd(&request_args, NULL);
         }
 
-        rn = read(CMD_FIFO_FD, request, sizeof(request)-1); // -1 to add '\0'
+        rn = read(cmd_fifo_fd, request, sizeof(request)-1); // -1 to add '\0'
         if (rn > 0) {
-            request[rn] = '\0';
+            if (request[rn-1] == '\n') request[rn-1] = '\0';
+            else request[rn] = '\0';
 
             if (cmd_timer) {
-                printf("EXECUTION: \033[33mSKIPPED\033[0m (%.2f seconds left)\n", (cmd_timer - now_ms()) / 1000.0 /* convert to seconds (float) */ );
+                printf("EXECUTION: \033[33mSKIPPED\033[0m (%.2f seconds left)\n", (cmd_timer - timer_now(TIMER_MS)) / 1000.0 /* convert to seconds (float) */ );
                 if (do_reply) {
                     move(CMD_STOP, 0);
                     reply(REPLY_SKIPPED);
@@ -394,52 +452,25 @@ int main(void) {
                 }
             }
 
-            printf("RECEIVED COMMAND: '\033[90m%s\033[0m'\n", request);
+            printf("\nRECEIVED COMMAND: '\033[90m%s\033[0m'\n", request);
 
             parse_cmd(&request_args, request);
 
-            /* print info ***(verbose)*** */
-            /* 
-            printf("type:           ");
-            switch (request_args.type) {
-                case CMD_MOVE_FORWARD:
-                    printf("CMD_MOVE_FORWARD\n");
-                    break;
-                case CMD_MOVE_BACK:
-                    printf("CMD_MOVE_BACK\n");
-                    break;
-                case CMD_TURN_RIGHT:
-                    printf("CMD_TURN_RIGHT\n");
-                    break;
-                case CMD_TURN_LEFT:
-                    printf("CMD_TURN_LEFT\n");
-                    break;
-                case CMD_STOP:
-                    printf("CMD_STOP\n");
-                    break;
-                case CMD_UNKNOWN:
-                    printf("CMD_UNKNOWN\n");
-                    break;
-            }
-            printf("seconds:        %lu\n", request_args.seconds);
-            printf("reply:         %d\n", request_args.reply);
-            */
-
             /* checking */
-            if (request_args.type == CMD_UNKNOWN) {
+            if (request_args.cmd == CMD_UNKNOWN) {
                 fprintf(stderr, "\033[31mERORR:\033[0m INVALID COMMAND\n");
                 /* reset values */
                 parse_cmd(&request_args, NULL);
             }
-            else if ((request_args.type == CMD_MOVE_FORWARD || request_args.type == CMD_MOVE_BACK) && request_args.seconds <= 0) {
+            else if ((request_args.cmd == CMD_MOVE_FORWARD || request_args.cmd == CMD_MOVE_BACKWARD) && request_args.seconds <= 0) {
                 fprintf(stderr, "\033[31mERORR:\033[0m MISSING SECONDS\n");
                 parse_cmd(&request_args, NULL);
             }
-            else if ((request_args.type == CMD_TURN_RIGHT || request_args.type == CMD_TURN_LEFT) && request_args.seconds) {
+            else if ((request_args.cmd == CMD_TURN_RIGHT || request_args.cmd == CMD_TURN_LEFT) && request_args.seconds) {
                 fprintf(stderr, "\033[31mERORR:\033[0m INVALID OPTIONS\n");
                 parse_cmd(&request_args, NULL);
             }
-            else if (request_args.type == CMD_MOVE_FORWARD && blocked) { // block command before executing
+            else if (request_args.cmd == CMD_MOVE_FORWARD && blocked) { // block command before executing
                 fprintf(stderr, "EXECUTION: \033[33mBLOCKED\033[0m\n");
                 if (request_args.reply) {
                     reply(REPLY_BLOCKED);
@@ -447,15 +478,24 @@ int main(void) {
                 parse_cmd(&request_args, NULL);
             }
             else {
-                move_ret = move(request_args.type, request_args.seconds);
+                move_ret = move(request_args.cmd, request_args.seconds);
 
                 if (move_ret < 0) {
-                    fprintf(stderr, "EXECUTION: \033[31mFAILED\033[0m (%s)\n", pigpio_error(move_ret));
-                    if (request_args.reply)
-                        reply(REPLY_FAILED);
-                    move_ret = -1;
+                    if (errno) {
+                        fprintf(stderr, "EXECUTION: \033[31mFAILED\033[0m (errno)(%s)\n", strerror(errno));
+                        move(CMD_STOP, 0);
+                        if (request_args.reply)
+                            reply(REPLY_FAILED);
+                        move_ret = -1;
+                    }
+                    else {
+                        fprintf(stderr, "EXECUTION: \033[31mFAILED\033[0m (%s)\n", lguErrorText(move_ret));
+                        if (request_args.reply)
+                            reply(REPLY_FAILED);
+                        move_ret = -1;
+                    }
                 }
-                else if (request_args.type == CMD_STOP) {
+                else if (request_args.cmd == CMD_STOP) {
                     fprintf(move_ret < 0 ? stderr : stdout, "EXECUTION: %s\033[0m\n", move_ret < 0 ? "\033[31mFAILED" : "\033[32mSUCCESS");
                     if (request_args.reply)
                         reply(move_ret < 0 ? REPLY_FAILED : REPLY_SUCCESS);
@@ -473,31 +513,25 @@ int main(void) {
         usleep(1);
     }
 
-    /*******************************************************/
-
-    usleep(50000);
+exit:
 
     /* stop motors */
     move(CMD_STOP, 0);
 
-    pigpio_stop(); // disconnect from daemon (pigpiod)
+    /* close gpiochip */
+    lgGpiochipClose(gpio);
 
-    /* double check */
-    if (CMD_FIFO_FD > 0)
-        close(CMD_FIFO_FD);
+    /* close PWMs */
+    pwm_close(&pwm0);
+    pwm_close(&pwm1);
+    pwm_close(&pwm2);
+    pwm_close(&pwm3);
 
-    /* remove FIFO files */
-    if (unlink(CMD_FIFO) < 0)
-        fprintf(stderr, "\033[33mWARNING:\033[0m unlink %s: %s", CMD_FIFO, strerror(errno));
+    close(cmd_fifo_fd);
+    unlink(MOTORD_CMD_FIFO);
+    unlink(MOTORD_REPLY_FIFO);
 
-    if (unlink(REPLY_FIFO) < 0)
-        fprintf(stderr, "\033[33mWARNING:\033[0m unlink %s: %s", REPLY_FIFO, strerror(errno));
+    runtime_exit();
 
-    if (unlink(PIDFILE) < 0)
-        fprintf(stderr, "\033[33mWARNING:\033[0m unlink %s: %s", PIDFILE, strerror(errno));
-
-
-    puts("\nexiting...");
-
-    return 0;
+    return exit_status;
 }
