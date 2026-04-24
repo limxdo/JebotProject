@@ -4,3 +4,7 @@ tmp/
 # ignore all python cache
 **/__pycache__/
 **/*.pyc
+
+# build and bin
+bin/
+build/
