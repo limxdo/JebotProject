@@ -1,7 +1,7 @@
 #ifndef TIMER_H
 #define TIMER_H
 
-#define timer_sleep(unit, n)\
+#define timer_busy_wait(unit, n)\
     do {\
         uint64_t _end = timer_now(unit) + n;\
         while(timer_now(unit) < _end);\
