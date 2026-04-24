@@ -136,8 +136,6 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    printf("PID: %d\n", getpid());
-
     /* get motord pid */
     pid_t motord_pid;
     FILE *motord_pid_file = fopen(MOTORD_PIDFILE, "r");
@@ -153,8 +151,6 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "\033[31mFATAL ERROR:\033[0m kill %d: %s\n", motord_pid, strerror(errno));
         return 1;
     }
-
-    printf("Motord PID: %d\n", motord_pid);
 
     gpio = lgGpiochipOpen(0);
     if (gpio < 0) {
@@ -189,6 +185,9 @@ int main(int argc, char *argv[]) {
     uint64_t wait_time = 0;
     bool waiting = false;
     
+
+    printf("PID: %d\n", getpid());
+    printf("Motord PID: %d\n", motord_pid);
 
     puts("\n|********** Ultrasonicd Is Started **********|\n");
 
@@ -263,8 +262,6 @@ int main(int argc, char *argv[]) {
     lgGpiochipClose(gpio);
 
     kill(motord_pid, SIGUSR2); // unblock motord before exit
-
-    puts("\nexiting...");
 
     return 0;
 }
