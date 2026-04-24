@@ -90,7 +90,6 @@ uint64_t pulsein(int echo, uint64_t timeout_us) {
 float get_distance(int trig, int echo) {
     float distance;
     uint64_t duration;
-    uint64_t start;
 
     lgGpioWrite(gpio, trig, 0);
     timer_busy_wait(TIMER_US, 2);
