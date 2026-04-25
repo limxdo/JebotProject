@@ -12,7 +12,6 @@ BUILD := build
 MOTORD_SRC := $(SRC)/motord.c
 MOTORD_OBJ := $(BUILD)/motord.o
 MOTORD_BIN := $(BIN)/motord
-
 # ultrasonicd
 ULTRASONICD_SRC := $(SRC)/ultrasonicd.c
 ULTRASONICD_OBJ := $(BUILD)/ultrasonicd.o
@@ -72,5 +71,13 @@ $(PWM_SYSFS_OBJ): $(PWM_SYSFS_SRC)
 clean:
 	rm -rf $(BUILD) $(BIN)
 
+# install
+install:
+	@./installer.sh install
 
-.PHONY: all clean
+# uninstall
+uninstall:
+	@./installer.sh uninstall
+
+
+.PHONY: all clean install uninstall
