@@ -363,7 +363,7 @@ int main(void) {
         pwm_open(&pwm2, 0, 2) < 0 ||
         pwm_open(&pwm3, 0, 3) < 0
     ) {
-        log_fatal("FATAL ERROR: pwm_open: %s\n", strerror(errno));
+        log_fatal("pwm_open: %s\n", strerror(errno));
         exit_status = 1;
         goto exit;
     }
