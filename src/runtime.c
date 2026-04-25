@@ -29,6 +29,11 @@ int runtime_init(const char *base, mode_t mode) {
     snprintf(runtime.base, sizeof(runtime.base), RUNTIME_PATH "/%s", base);
     snprintf(runtime.pid, sizeof(runtime.pid), "%s/pid", runtime.base);
 
+    /* create RUNTUME_PATH if not exists */
+    if (mkdir(RUNTIME_PATH, 0755) != 0 && errno != EEXIST)
+        return -1;
+    chmod(RUNTIME_PATH, 0755);
+
     if (mkdir(runtime.base, mode) != 0 && errno != EEXIST)
         return -1;
     chmod(runtime.base, mode);
@@ -84,4 +89,7 @@ void runtime_exit(void) {
         rmdir(runtime.created_dirs[i-1]);
 
     rmdir(runtime.base);
+
+    /* if empty */
+    rmdir(RUNTIME_PATH);
 }
