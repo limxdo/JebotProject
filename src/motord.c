@@ -1,6 +1,7 @@
 #include "../include/runtime.h"
 #include "../include/pwm_sysfs.h"
 #include "../include/timer.h"
+#include "../include/logger.h"
 
 #include <lgpio.h>
 #include <unistd.h>
@@ -310,14 +311,14 @@ void reply(reply_t reply) {
 
     /* open MOTORD_REPLY_FIFO */
     if ((reply_fifo_fd = open(MOTORD_REPLY_FIFO, O_WRONLY | O_NONBLOCK)) < 0) {
-        fprintf(stderr, "REPLY: \033[31mERROR\033[0m (%s)\n", strerror(errno));
+        log_err("REPLY: ERROR (%s)\n", strerror(errno));
         return;
     }
     else {
         if (write(reply_fifo_fd, msg, strlen(msg)) < 0) {
-            fprintf(stderr, "REPLY: \033[31mWRITE ERROR\033[0m (%s)\n", strerror(errno));
+            log_err("REPLY: WRITE ERROR (%s)\n", strerror(errno));
         } else {
-            printf("REPLY: \033[32mSUCCESS\033[0m\n");
+            log_info("REPLY: SUCCESS\n");
         }
 
         close(reply_fifo_fd);
@@ -340,20 +341,19 @@ int main(void) {
     int exit_status = 0;
 
     if (runtime_init("motord", 0755) < 0) {
-        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m Runtime failed: %s\n", strerror(errno));
+        log_fatal("Runtime failed: %s\n", strerror(errno));
         exit_status = 1;
         goto exit;
     }
     runtime_pid(getpid());
 
-    printf("PID: %d\n", getpid());
-
     /* open gpiochip */
     gpio = lgGpiochipOpen(0);
 
     if (gpio < 0) {
-        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m lgGpiochipOpen: %s\n", lguErrorText(gpio));
-        return 1;
+        log_fatal("lgGpiochipOpen: %s\n", lguErrorText(gpio));
+        exit_status = 1;
+        goto exit;
     }
 
     /* Open PWMs */
@@ -363,7 +363,7 @@ int main(void) {
         pwm_open(&pwm2, 0, 2) < 0 ||
         pwm_open(&pwm3, 0, 3) < 0
     ) {
-        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m pwm_open: %s\n", strerror(errno));
+        log_fatal("FATAL ERROR: pwm_open: %s\n", strerror(errno));
         exit_status = 1;
         goto exit;
     }
@@ -381,7 +381,7 @@ int main(void) {
     /* creating MOTORD_CMD_FIFO file */
     unlink(MOTORD_CMD_FIFO); // if exists
     if (mkfifo(MOTORD_CMD_FIFO, 0622) < 0) {
-        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m mkfifo %s: %s\n", MOTORD_CMD_FIFO, strerror(errno));
+        log_fatal("mkfifo %s: %s\n", MOTORD_CMD_FIFO, strerror(errno));
         exit_status = 1;
         goto exit;
     }
@@ -390,14 +390,14 @@ int main(void) {
     /* open fd for MOTORD_CMD_FIFO */
     int cmd_fifo_fd = -1;
     if ((cmd_fifo_fd = open(MOTORD_CMD_FIFO, O_RDONLY | O_NONBLOCK)) < 0) {
-        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m open %s: %s\n", MOTORD_CMD_FIFO, strerror(errno));
+        log_fatal("open %s: %s\n", MOTORD_CMD_FIFO, strerror(errno));
         exit_status = 1;
         goto exit;
     }
 
     unlink(MOTORD_REPLY_FIFO);
     if (mkfifo(MOTORD_REPLY_FIFO, 0644) < 0) {
-        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m mkfifo %s: %s\n", MOTORD_REPLY_FIFO, strerror(errno));
+        log_fatal("mkfifo %s: %s\n", MOTORD_REPLY_FIFO, strerror(errno));
         exit_status = 1;
         goto exit;
     }
@@ -411,13 +411,15 @@ int main(void) {
     struct request_args request_args;
     parse_cmd(&request_args, NULL);
 
-    puts("\n|********** Motord Is Started **********|");
+
+    log_info("PID: %d\n", getpid());
+    log_info("|********** Motord Is Started **********|\n");
     while(running) {
 
         /* if exists command, check if command finished */
         if (cmd_timer && timer_now(TIMER_MS) >= cmd_timer) {
             move(CMD_STOP, 0);
-            printf("EXECUTION: \033[32mSUCCESS\033[0m\n");
+            log_info("EXECUTION: SUCCESS\n");
             /* if need to reply */
             if (do_reply) {
                 do_reply = false;
@@ -428,7 +430,7 @@ int main(void) {
             parse_cmd(&request_args, NULL);
         }
         else if (request_args.cmd == CMD_MOVE_FORWARD && blocked) { // block the command if already executing
-            printf("EXECUTION: \033[33mBLOCKED\033[0m\n");
+            log_info("EXECUTION: BLOCKED\n");
             move(CMD_STOP, 0);
             if (do_reply) {
                 reply(REPLY_BLOCKED);
@@ -444,7 +446,7 @@ int main(void) {
             else request[rn] = '\0';
 
             if (cmd_timer) {
-                printf("EXECUTION: \033[33mSKIPPED\033[0m (%.2f seconds left)\n", (cmd_timer - timer_now(TIMER_MS)) / 1000.0 /* convert to seconds (float) */ );
+                log_info("EXECUTION: SKIPPED (%.2f seconds left)\n", (cmd_timer - timer_now(TIMER_MS)) / 1000.0 /* convert to seconds (float) */ );
                 if (do_reply) {
                     move(CMD_STOP, 0);
                     reply(REPLY_SKIPPED);
@@ -452,26 +454,27 @@ int main(void) {
                 }
             }
 
-            printf("\nRECEIVED COMMAND: '\033[90m%s\033[0m'\n", request);
+            log_print("\n");
+            log_info("RECEIVED COMMAND: '%s'\n", request);
 
             parse_cmd(&request_args, request);
 
             /* checking */
             if (request_args.cmd == CMD_UNKNOWN) {
-                fprintf(stderr, "\033[31mERORR:\033[0m INVALID COMMAND\n");
+                log_err("INVALID COMMAND\n");
                 /* reset values */
                 parse_cmd(&request_args, NULL);
             }
             else if ((request_args.cmd == CMD_MOVE_FORWARD || request_args.cmd == CMD_MOVE_BACKWARD) && request_args.seconds <= 0) {
-                fprintf(stderr, "\033[31mERORR:\033[0m MISSING SECONDS\n");
+                log_err("MISSING SECONDS\n");
                 parse_cmd(&request_args, NULL);
             }
             else if ((request_args.cmd == CMD_TURN_RIGHT || request_args.cmd == CMD_TURN_LEFT) && request_args.seconds) {
-                fprintf(stderr, "\033[31mERORR:\033[0m INVALID OPTIONS\n");
+                log_err("INVALID OPTIONS\n");
                 parse_cmd(&request_args, NULL);
             }
             else if (request_args.cmd == CMD_MOVE_FORWARD && blocked) { // block command before executing
-                fprintf(stderr, "EXECUTION: \033[33mBLOCKED\033[0m\n");
+                log_info("EXECUTION: BLOCKED\n");
                 if (request_args.reply) {
                     reply(REPLY_BLOCKED);
                 }
@@ -482,21 +485,24 @@ int main(void) {
 
                 if (move_ret < 0) {
                     if (errno) {
-                        fprintf(stderr, "EXECUTION: \033[31mFAILED\033[0m (errno)(%s)\n", strerror(errno));
+                        log_err("EXECUTION: FAILED (%s)\n", strerror(errno));
                         move(CMD_STOP, 0);
                         if (request_args.reply)
                             reply(REPLY_FAILED);
                         move_ret = -1;
                     }
                     else {
-                        fprintf(stderr, "EXECUTION: \033[31mFAILED\033[0m (%s)\n", lguErrorText(move_ret));
+                        log_err("EXECUTION: FAILED (%s)\n", lguErrorText(move_ret));
                         if (request_args.reply)
                             reply(REPLY_FAILED);
                         move_ret = -1;
                     }
                 }
                 else if (request_args.cmd == CMD_STOP) {
-                    fprintf(move_ret < 0 ? stderr : stdout, "EXECUTION: %s\033[0m\n", move_ret < 0 ? "\033[31mFAILED" : "\033[32mSUCCESS");
+                    if (move_ret < 0)
+                        log_err("EXECUTION: FAILED\n");
+                    else
+                        log_info("EXECUTION: SUCCESS\n");
                     if (request_args.reply)
                         reply(move_ret < 0 ? REPLY_FAILED : REPLY_SUCCESS);
                 }
@@ -514,7 +520,6 @@ int main(void) {
     }
 
 exit:
-
     /* stop motors */
     move(CMD_STOP, 0);
 

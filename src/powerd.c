@@ -1,4 +1,5 @@
 #include "../include/runtime.h"
+#include "../include/logger.h"
 
 #include <linux/i2c-dev.h>
 #include <sys/ioctl.h>
@@ -320,7 +321,7 @@ int main(void) {
     
     /* runtime setup */
     if (runtime_init("powerd", 0755) < 0) {
-        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m Runtime failed: %s\n", strerror(errno));
+        log_fatal("Runtime failed: %s\n", strerror(errno));
         exit_status = 1;
         goto exit;
     }
@@ -329,7 +330,7 @@ int main(void) {
     /* gpio */
     gpio = lgGpiochipOpen(0);
     if (gpio < 0) {
-        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m lgGpiochipOpen: %s\n", lguErrorText(gpio));
+        log_fatal("lgGpiochipOpen: %s\n", lguErrorText(gpio));
         exit_status = 1;
         goto exit;
     }
@@ -342,13 +343,13 @@ int main(void) {
 
     ina219.i2c_fd = open(I2C_BUS, O_RDWR);
     if (ina219.i2c_fd < 0) {
-        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m open %s (%s): %s\n", I2C_BUS, "INA219", strerror(errno));
+        log_fatal("open %s (%s): %s\n", I2C_BUS, "INA219", strerror(errno));
         exit_status = 1;
         goto exit;
     }
 
     if (ioctl(ina219.i2c_fd, I2C_SLAVE, INA219_ADDR) < 0) {
-        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m ioctl 0x%x: %s\n", INA219_ADDR, strerror(errno));
+        log_fatal("ioctl 0x%x: %s\n", INA219_ADDR, strerror(errno));
         exit_status = 1;
         goto exit;
     }
@@ -377,13 +378,13 @@ int main(void) {
     x1201.i2c_fd = open(I2C_BUS, O_RDWR);
 
     if (x1201.i2c_fd < 0) {
-        fprintf(stderr, "FATAL ERROR: open %s (%s): %s\n", I2C_BUS, "X1201", strerror(errno));
+        log_fatal("open %s (%s): %s\n", I2C_BUS, "X1201", strerror(errno));
         exit_status = 1;
         goto exit;
     }
 
     if (ioctl(x1201.i2c_fd, I2C_SLAVE, X1201_ADDR) < 0) {
-        fprintf(stderr, "FATAL ERROR: ioctl 0x%x: %s\n", X1201_ADDR, strerror(errno));
+        log_fatal("ioctl 0x%x: %s\n", X1201_ADDR, strerror(errno));
         exit_status = 1;
         goto exit;
     }
@@ -394,8 +395,8 @@ int main(void) {
     x1201.capacity_fd = runtime_open(X1201_CAPACITY_PATH, O_WRONLY | O_CREAT, 0644);
     x1201.charging_fd = runtime_open(X1201_CHARGING_PATH, O_WRONLY | O_CREAT, 0644);
 
-    printf("PID: %d\n", getpid());
-    puts("\n|********** Powerd Is Started **********|");
+    log_info("PID: %d\n", getpid());
+    log_info("|********** Powerd Is Started **********|\n");
     while (running) {
         ina219_get_all(&ina219);
         ina219_write_values(&ina219);
