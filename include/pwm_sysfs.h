@@ -2,7 +2,6 @@
 #define PWM_SYSFS_H
 
 #define PWM_INIT {0}
-#define PWM_PERIOD_MAX 20000000
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -26,14 +25,16 @@ typedef struct {
     FILE *duty_file;
     FILE *enable_file;
 
-    uint64_t period;
-    uint64_t duty_cycle;
+    uint64_t period_ns;
+    uint64_t duty_cycle_ns;
     bool enable;
 } pwm_t;
 
 int pwm_open(pwm_t *pwm, unsigned int chip, unsigned int channel);
-int pwm_set_period(pwm_t *pwm, uint64_t period);
-int pwm_set_duty_cycle(pwm_t *pwm, uint64_t duty);
+int pwm_set_period(pwm_t *pwm, uint64_t period_ns);
+int pwm_set_period_hz(pwm_t *pwm, uint32_t hz);
+int pwm_set_duty_cycle(pwm_t *pwm, uint64_t duty_ns);
+int pwm_set_duty_cycle_percentage(pwm_t *pwm, uint8_t percent);
 int pwm_enable(pwm_t *pwm, bool enable);
 int pwm_close(pwm_t *pwm);
 
