@@ -23,33 +23,56 @@
 
 
 /* PWMs */
-#define RIGHT_RPWM    pwm0
-#define RIGHT_LPWM    pwm1
-#define LEFT_RPWM     pwm2
-#define LEFT_LPWM     pwm3
+#define RIGHT_RPWM     pwm0 // pwm channel 0 -> GPIO 12
+#define RIGHT_LPWM     pwm1 // pwm channel 1 -> GPIO 13
+#define LEFT_RPWM      pwm2 // pwm channel 2 -> GPIO 18
+#define LEFT_LPWM      pwm3 // pwm channel 3 -> GPIO 19
 
-#define RIGHT_FORWARD RIGHT_RPWM
-#define RIGHT_BACK    RIGHT_LPWM
-#define LEFT_FORWARD  LEFT_RPWM
-#define LEFT_BACK     LEFT_LPWM
+#define RIGHT_FORWARD  RIGHT_RPWM
+#define RIGHT_BACKWARD RIGHT_LPWM
+#define LEFT_FORWARD   LEFT_RPWM
+#define LEFT_BACKWARD  LEFT_LPWM
 
 /* PWM config */
-#define PERIOD     PWM_PERIOD_MAX
-#define DUTY_CYCLE PERIOD
+#define PERIOD_HZ          10000 // 10kHz
+#define DUTY_CYCLE_PERCENT 50
+
+
+/* Encoders */
+#define RIGHT_ENCODER_A_GPIO 23
+#define LEFT_ENCODER_A_GPIO  24
+
+/* Empirically calibrated: 20 pulses/cm (based on multiple runs over 10cm, 25cm, 40cm, 100cm, 200cm). May vary with chassis or ground conditions. */
+#define PULSES_PER_CM 20
+
+uint64_t left_enc_a_counter = 0;
+uint64_t right_enc_a_counter = 0;
+uint64_t target_pulses = 0;
 
 
 /* global vars */
 volatile bool running = true;   // main loop
 volatile bool blocked = false;  // if ultrasonicd detect an obstacle, send signal to motord to block any FORWARD request
-bool do_reply = false;          // know if reply
-int move_ret = -1;              // move() return
 int gpio = -1;                  // gpio handler (lgpio)
-uint64_t cmd_timer = 0;         // timer of command
 
+/* PWMs */
 pwm_t pwm0 = PWM_INIT,
       pwm1 = PWM_INIT,
       pwm2 = PWM_INIT,
       pwm3 = PWM_INIT;
+
+
+/* Encoders interrupt service routine function */
+void encoder_isr(int e, lgGpioAlert_p evt, void *userdata) {
+    for (int i = 0; i < e; i++) {
+        if (evt[i].report.gpio == RIGHT_ENCODER_A_GPIO) {
+            right_enc_a_counter++;
+        }
+        else if (evt[i].report.gpio == LEFT_ENCODER_A_GPIO) {
+            left_enc_a_counter++;
+        }
+    }
+}
 
 
 /* handler of signals */
@@ -86,25 +109,22 @@ typedef enum {
 /* struct to store command & args from MOTORD_CMD_FIFO */
 struct request_args {
     cmd_t cmd;
-    unsigned long seconds;
+    uint64_t distance_cm;
     bool reply;
 };
-/* NOTE: 'seconds' is temporary. Will be replaced with centimeters (cm)
- * once encoders are properly calibrated and integrated.
- */
 
 /* function to filter a struct from one string */
 void parse_cmd(struct request_args *request_args, char *request) {
 
     /* default values */
     request_args->cmd = CMD_UNKNOWN;
-    request_args->seconds = 0;
+    request_args->distance_cm = 0;
     request_args->reply = false;
     if (request == NULL) // uses to set default values in struct & exit 
         return;
 
     char *argptr; // strtok
-    char *endptr; // strtoul
+    char *endptr; // strtoull
 
     /* first argument */
     argptr = strtok(request, " ");
@@ -143,16 +163,16 @@ void parse_cmd(struct request_args *request_args, char *request) {
         return;
     }
     else {
-        /* if arg2 is reply */
+        /* if second arg is reply */
         if (strcmp(argptr, "--reply") == 0) {
             request_args->reply = true;
             return;
         }
         else {
             /* if seconds */
-            request_args->seconds = strtoul(argptr, &endptr, 10);
+            request_args->distance_cm = strtoull(argptr, &endptr, 10);
             if (endptr == argptr || *endptr == '-') {  // not a number or negative number
-                request_args->seconds = 0;
+                request_args->distance_cm = 0;
             }
         }
     }
@@ -171,117 +191,112 @@ void parse_cmd(struct request_args *request_args, char *request) {
 }
 
 /* main function to moving */
-int move(cmd_t cmd, unsigned long seconds) {
+int move(cmd_t cmd, uint64_t distance_cm) {
 
     /*
      * BTS7960 motor drivers connected to hardware PWM (sysfs).
      * Two motors per driver (left/right sides).
      * R_EN and L_EN are tied to 3.3V (always enabled).
      * Control via RPWM (forward) and LPWM (backward).
-     * Encoder and gyro feedback not yet implemented.
+     * Encoder feedback implemented (distance & straight line).
+     * Gyro not yet integrated (planned for tank turn).
      */
 
-    /* convert sec to ms */
-    seconds *= 1000;
-    int status;
+    /* reset values */
+    target_pulses = 0;
+    right_enc_a_counter = 0;
+    left_enc_a_counter = 0;
+    /* Temporary approximation: 2 cm * PULSES_PER_CM = ~90 angle turn (will be replaced with gyro) */
+    uint64_t angle_90 = 2 * PULSES_PER_CM;
 
-    unsigned long angle_90 = 850; // ms, will be replaced with gyro feedback
+    int status;
 
     /* execute command and error checking */
     switch (cmd) {
     case CMD_MOVE_FORWARD:
-        pwm_set_duty_cycle(&RIGHT_FORWARD, DUTY_CYCLE);
-        pwm_set_duty_cycle(&LEFT_FORWARD, DUTY_CYCLE);
+        /* convert distance_cm to encoder pulses */
+        target_pulses = distance_cm * PULSES_PER_CM;
 
-        /* check if writing pwm */
+        /* check if pwm failed */
         if (
             ((status = pwm_enable(&RIGHT_FORWARD, true)) < 0) ||
-            ((status = pwm_enable(&RIGHT_BACK, false)) < 0) ||
+            ((status = pwm_enable(&RIGHT_BACKWARD, false)) < 0) ||
             ((status = pwm_enable(&LEFT_FORWARD, true)) < 0) ||
-            ((status = pwm_enable(&LEFT_BACK, false)) < 0)
+            ((status = pwm_enable(&LEFT_BACKWARD, false)) < 0)
         ) {
             move(CMD_STOP, 0); // try to stop motors
             return status;
         }
 
-        /* start timer if success */
-        cmd_timer = timer_now(TIMER_MS) + seconds;
         break;
 
     case CMD_MOVE_BACKWARD:
-        pwm_set_duty_cycle(&RIGHT_BACK, DUTY_CYCLE);
-        pwm_set_duty_cycle(&LEFT_BACK, DUTY_CYCLE);
+        target_pulses = distance_cm * PULSES_PER_CM;
 
         if (
             ((status = pwm_enable(&RIGHT_FORWARD, false)) < 0) ||
-            ((status = pwm_enable(&RIGHT_BACK, true)) < 0) ||
+            ((status = pwm_enable(&RIGHT_BACKWARD, true)) < 0) ||
             ((status = pwm_enable(&LEFT_FORWARD, false)) < 0) ||
-            ((status = pwm_enable(&LEFT_BACK, true)) < 0)
+            ((status = pwm_enable(&LEFT_BACKWARD, true)) < 0)
         ) {
             move(CMD_STOP, 0);
             return status;
         }
 
-        cmd_timer = timer_now(TIMER_MS) + seconds;
         break;
 
     case CMD_TURN_RIGHT:
-        pwm_set_duty_cycle(&RIGHT_BACK, PERIOD);
-        pwm_set_duty_cycle(&LEFT_FORWARD, PERIOD);
-
+        target_pulses = angle_90 * PULSES_PER_CM;
         if (
             ((status = pwm_enable(&RIGHT_FORWARD, false)) < 0) ||
-            ((status = pwm_enable(&RIGHT_BACK, true)) < 0) ||
+            ((status = pwm_enable(&RIGHT_BACKWARD, true)) < 0) ||
             ((status = pwm_enable(&LEFT_FORWARD, true)) < 0) ||
-            ((status = pwm_enable(&LEFT_BACK, false)) < 0)
+            ((status = pwm_enable(&LEFT_BACKWARD, false)) < 0)
         ) {
             move(CMD_STOP, 0);
             return status;
         }
 
-        cmd_timer = timer_now(TIMER_MS) + angle_90;
         break;
 
     case CMD_TURN_LEFT:
-        pwm_set_duty_cycle(&RIGHT_FORWARD, PERIOD);
-        pwm_set_duty_cycle(&LEFT_BACK, PERIOD);
-
+        target_pulses = angle_90 * PULSES_PER_CM;
         if (
             ((status = pwm_enable(&RIGHT_FORWARD, true)) < 0) ||
-            ((status = pwm_enable(&RIGHT_BACK, false)) < 0) ||
+            ((status = pwm_enable(&RIGHT_BACKWARD, false)) < 0) ||
             ((status = pwm_enable(&LEFT_FORWARD, false)) < 0) ||
-            ((status = pwm_enable(&LEFT_BACK, true)) < 0)
+            ((status = pwm_enable(&LEFT_BACKWARD, true)) < 0)
         ) {
             move(CMD_STOP, 0);
             return status;
         }
 
-        cmd_timer = timer_now(TIMER_MS) + angle_90;
         break;
 
     case CMD_STOP:
-        pwm_set_duty_cycle(&RIGHT_FORWARD, 0);
-        pwm_set_duty_cycle(&RIGHT_BACK, 0);
-        pwm_set_duty_cycle(&LEFT_FORWARD, 0);
-        pwm_set_duty_cycle(&LEFT_BACK, 0);
-
         /* do not call move(CMD_STOP, 0) again to avoid recursion if pwm failed */
         if (
             ((status = pwm_enable(&RIGHT_FORWARD, false)) < 0) ||
-            ((status = pwm_enable(&RIGHT_BACK, false)) < 0) ||
+            ((status = pwm_enable(&RIGHT_BACKWARD, false)) < 0) ||
             ((status = pwm_enable(&LEFT_FORWARD, false)) < 0) ||
-            ((status = pwm_enable(&LEFT_BACK, false)) < 0)
-        )
+            ((status = pwm_enable(&LEFT_BACKWARD, false)) < 0)
+        ) {
+            target_pulses = 0;
+            right_enc_a_counter = 0;
+            left_enc_a_counter = 0;
             return status;
+        }
 
-        cmd_timer = 0;
+        target_pulses = 0;
+        right_enc_a_counter = 0;
+        left_enc_a_counter = 0;
         break;
     
     default:
         return -1;
     }
 
-    return 0; // return true
+    return 0;
 }
 
 /* reply function */
@@ -356,6 +371,16 @@ int main(void) {
         goto exit;
     }
 
+    
+    /* setup encoders */
+    lgGpioClaimInput(gpio, LG_SET_PULL_NONE, RIGHT_ENCODER_A_GPIO);
+    lgGpioClaimInput(gpio, LG_SET_PULL_NONE, LEFT_ENCODER_A_GPIO);
+
+    lgGpioSetAlertsFunc(gpio, RIGHT_ENCODER_A_GPIO, encoder_isr, NULL);
+    lgGpioSetAlertsFunc(gpio, LEFT_ENCODER_A_GPIO, encoder_isr, NULL);
+    lgGpioClaimAlert(gpio, 0, LG_BOTH_EDGES, RIGHT_ENCODER_A_GPIO, -1);
+    lgGpioClaimAlert(gpio, 0, LG_BOTH_EDGES, LEFT_ENCODER_A_GPIO, -1);
+
     /* Open PWMs */
     if (
         pwm_open(&pwm0, 0, 0) < 0 ||
@@ -368,17 +393,17 @@ int main(void) {
         goto exit;
     }
 
-    pwm_set_period(&pwm0, PERIOD);
-    pwm_set_period(&pwm1, PERIOD);
-    pwm_set_period(&pwm2, PERIOD);
-    pwm_set_period(&pwm3, PERIOD);
+    pwm_set_period_hz(&RIGHT_FORWARD, PERIOD_HZ);
+    pwm_set_period_hz(&RIGHT_BACKWARD, PERIOD_HZ);
+    pwm_set_period_hz(&LEFT_FORWARD, PERIOD_HZ);
+    pwm_set_period_hz(&LEFT_BACKWARD, PERIOD_HZ);
 
-    pwm_set_duty_cycle(&pwm0, DUTY_CYCLE);
-    pwm_set_duty_cycle(&pwm1, DUTY_CYCLE);
-    pwm_set_duty_cycle(&pwm2, DUTY_CYCLE);
-    pwm_set_duty_cycle(&pwm3, DUTY_CYCLE);
+    pwm_set_duty_cycle_percentage(&RIGHT_FORWARD, DUTY_CYCLE_PERCENT);
+    pwm_set_duty_cycle_percentage(&RIGHT_BACKWARD, DUTY_CYCLE_PERCENT);
+    pwm_set_duty_cycle_percentage(&LEFT_FORWARD, DUTY_CYCLE_PERCENT);
+    pwm_set_duty_cycle_percentage(&LEFT_BACKWARD, DUTY_CYCLE_PERCENT);
 
-    /* creating MOTORD_CMD_FIFO file */
+    /* creating MOTORD_CMD_FIFO */
     unlink(MOTORD_CMD_FIFO); // if exists
     if (mkfifo(MOTORD_CMD_FIFO, 0622) < 0) {
         log_fatal("mkfifo %s: %s\n", MOTORD_CMD_FIFO, strerror(errno));
@@ -395,6 +420,7 @@ int main(void) {
         goto exit;
     }
 
+    /* creating MOTORD_REPLY_FIFO */
     unlink(MOTORD_REPLY_FIFO);
     if (mkfifo(MOTORD_REPLY_FIFO, 0644) < 0) {
         log_fatal("mkfifo %s: %s\n", MOTORD_REPLY_FIFO, strerror(errno));
@@ -408,34 +434,30 @@ int main(void) {
     char request[256];
     ssize_t rn;
 
+    int move_ret = -1;
     struct request_args request_args;
     parse_cmd(&request_args, NULL);
 
 
     log_info("PID: %d\n", getpid());
     log_info("|********** Motord Is Started **********|\n");
-    while(running) {
-
+    while (running) {
         /* if exists command, check if command finished */
-        if (cmd_timer && timer_now(TIMER_MS) >= cmd_timer) {
+        // if (target_pulses && (right_enc_a_counter >= target_pulses && left_enc_a_counter >= target_pulses)) {
+        if (target_pulses && ((right_enc_a_counter + left_enc_a_counter) / 2 >= target_pulses)) {
             move(CMD_STOP, 0);
             log_info("EXECUTION: SUCCESS\n");
             /* if need to reply */
-            if (do_reply) {
-                do_reply = false;
+            if (request_args.reply)
                 reply(REPLY_SUCCESS);
-                move_ret = -1;
-            }
             /* reset values */
             parse_cmd(&request_args, NULL);
         }
         else if (request_args.cmd == CMD_MOVE_FORWARD && blocked) { // block the command if already executing
             log_info("EXECUTION: BLOCKED\n");
             move(CMD_STOP, 0);
-            if (do_reply) {
+            if (request_args.reply)
                 reply(REPLY_BLOCKED);
-                do_reply = false;
-            }
             /* reset values to avoid print loop */
             parse_cmd(&request_args, NULL);
         }
@@ -445,12 +467,14 @@ int main(void) {
             if (request[rn-1] == '\n') request[rn-1] = '\0';
             else request[rn] = '\0';
 
-            if (cmd_timer) {
-                log_info("EXECUTION: SKIPPED (%.2f seconds left)\n", (cmd_timer - timer_now(TIMER_MS)) / 1000.0 /* convert to seconds (float) */ );
-                if (do_reply) {
+            if (target_pulses) {
+                if (request_args.cmd == CMD_MOVE_FORWARD || request_args.cmd == CMD_MOVE_BACKWARD)
+                    log_info("EXECUTION: SKIPPED (%"PRIu64" cm left)\n", (request_args.distance_cm - ((right_enc_a_counter + left_enc_a_counter) / 2 / PULSES_PER_CM)));
+                else
+                    log_info("EXECUTION: SKIPPED\n");
+                if (request_args.reply) {
                     move(CMD_STOP, 0);
                     reply(REPLY_SKIPPED);
-                    do_reply = false;
                 }
             }
 
@@ -465,11 +489,11 @@ int main(void) {
                 /* reset values */
                 parse_cmd(&request_args, NULL);
             }
-            else if ((request_args.cmd == CMD_MOVE_FORWARD || request_args.cmd == CMD_MOVE_BACKWARD) && request_args.seconds <= 0) {
-                log_err("MISSING SECONDS\n");
+            else if ((request_args.cmd == CMD_MOVE_FORWARD || request_args.cmd == CMD_MOVE_BACKWARD) && !request_args.distance_cm) {
+                log_err("MISSING ARGS\n");
                 parse_cmd(&request_args, NULL);
             }
-            else if ((request_args.cmd == CMD_TURN_RIGHT || request_args.cmd == CMD_TURN_LEFT) && request_args.seconds) {
+            else if ((request_args.cmd == CMD_TURN_RIGHT || request_args.cmd == CMD_TURN_LEFT) && request_args.distance_cm) {
                 log_err("INVALID OPTIONS\n");
                 parse_cmd(&request_args, NULL);
             }
@@ -481,37 +505,18 @@ int main(void) {
                 parse_cmd(&request_args, NULL);
             }
             else {
-                move_ret = move(request_args.cmd, request_args.seconds);
+                move_ret = move(request_args.cmd, request_args.distance_cm);
 
                 if (move_ret < 0) {
-                    if (errno) {
-                        log_err("EXECUTION: FAILED (%s)\n", strerror(errno));
-                        move(CMD_STOP, 0);
-                        if (request_args.reply)
-                            reply(REPLY_FAILED);
-                        move_ret = -1;
-                    }
-                    else {
-                        log_err("EXECUTION: FAILED (%s)\n", lguErrorText(move_ret));
-                        if (request_args.reply)
-                            reply(REPLY_FAILED);
-                        move_ret = -1;
-                    }
+                    log_err("EXECUTION: FAILED (%s)\n", errno ? strerror(errno) : lguErrorText(move_ret));
+                    move(CMD_STOP, 0);
+                    if (request_args.reply)
+                        reply(REPLY_FAILED);
                 }
                 else if (request_args.cmd == CMD_STOP) {
-                    if (move_ret < 0)
-                        log_err("EXECUTION: FAILED\n");
-                    else
-                        log_info("EXECUTION: SUCCESS\n");
+                    log_info("EXECUTION: SUCCESS\n");
                     if (request_args.reply)
-                        reply(move_ret < 0 ? REPLY_FAILED : REPLY_SUCCESS);
-                }
-                else if (request_args.reply) {
-                    do_reply = true;
-                }
-                else {
-                    do_reply = false;
-                    move_ret = -1;
+                        reply(REPLY_SUCCESS);
                 }
             }
         }
