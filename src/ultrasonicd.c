@@ -1,5 +1,6 @@
 #include "../include/timer.h"
 #include "../include/runtime.h"
+#include "../include/logger.h"
 
 #include <lgpio.h>
 #include <unistd.h>
@@ -112,6 +113,8 @@ float get_distance(int trig, int echo) {
 
 int main(int argc, char *argv[]) {
 
+    int exit_status = 0;
+
     int trig = -1, echo = -1;
 
     /* get trig & echo gpio number */
@@ -140,7 +143,7 @@ int main(int argc, char *argv[]) {
     pid_t motord_pid;
     FILE *motord_pid_file = fopen(MOTORD_PIDFILE, "r");
     if (!motord_pid_file) {
-        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m fopen %s: %s\n", MOTORD_PIDFILE, strerror(errno));
+        log_fatal("fopen %s: %s\n", MOTORD_PIDFILE, strerror(errno));
         return 1;
     }
     fscanf(motord_pid_file, "%d", &motord_pid);
@@ -148,13 +151,13 @@ int main(int argc, char *argv[]) {
     
     /* try to send signal to motord */
     if (kill(motord_pid, 0) < 0) {
-        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m kill %d: %s\n", motord_pid, strerror(errno));
+        log_fatal("kill %d: %s\n", motord_pid, strerror(errno));
         return 1;
     }
 
     gpio = lgGpiochipOpen(0);
     if (gpio < 0) {
-        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m lgGpiochipOpen: %s\n", lguErrorText(gpio));
+        log_fatal("lgGpiochipOpen: %s\n", lguErrorText(gpio));
         return 1;
     }
 
@@ -164,19 +167,22 @@ int main(int argc, char *argv[]) {
     signal(SIGPIPE, SIG_IGN);
 
     if (gpio < 0) {
-        fprintf(stderr, "\033[31mFATAL ERROR:\033[0m lgGpiochipOpen: %s\n", lguErrorText(gpio));
+        log_fatal("lgGpiochipOpen: %s\n", lguErrorText(gpio));
         return 1;
     }
 
 
     /* setup lines */
-    int io;
-    if (
-        (io = lgGpioClaimOutput(gpio, LG_SET_OUTPUT, trig, 0)) < 0 ||
-        (io = lgGpioClaimInput(gpio, LG_SET_PULL_NONE, echo)) < 0
-    ) {
-        fprintf(stderr, "Error: %s\n", lguErrorText(io));
-        return 1;
+    int io = -1;
+    if ((io = lgGpioClaimOutput(gpio, LG_SET_OUTPUT, trig, 0)) < 0) {
+        log_fatal("%s\n", lguErrorText(io));
+        exit_status = 1;
+        goto exit;
+    }
+    if ((io = lgGpioClaimInput(gpio, LG_SET_PULL_NONE, echo)) < 0) {
+        log_fatal("%s\n", lguErrorText(io));
+        exit_status = 1;
+        goto exit;
     }
 
 
@@ -186,10 +192,10 @@ int main(int argc, char *argv[]) {
     bool waiting = false;
     
 
-    printf("PID: %d\n", getpid());
-    printf("Motord PID: %d\n", motord_pid);
+    log_info("PID: %d\n", getpid());
+    log_info("Motord PID: %d\n", motord_pid);
 
-    puts("\n|********** Ultrasonicd Is Started **********|\n");
+    log_info("|********** Ultrasonicd Is Started **********|\n\n");
 
     while(running) {
         distance = get_distance(trig, echo);
@@ -198,9 +204,8 @@ int main(int argc, char *argv[]) {
 
         if (distance) { // if not timeouted
 
-            /* debug / verbose */
-            // printf("distance:       %.2fcm\n", distance);
-            // printf("first_distance: %.2fcm\n", first_distance);
+            log_debug("distance:       %.2fcm\n", distance);
+            log_debug("first_distance: %.2fcm\n", first_distance);
 
             if (distance <= MAX_DISTANCE) {
                 if (!waiting) {
@@ -213,7 +218,7 @@ int main(int argc, char *argv[]) {
                     if ((now - wait_time) >= WAIT_TIME_US) { // if timer timeout
                         if (first_distance >= distance) {
                             if (!blocked) {
-                                printf("Obstacle Detected: %.2fcm\n", distance);
+                                log_info("Obstacle Detected: %.2fcm\n", distance);
                                 kill(motord_pid, SIGUSR1);
                                 blocked = true;
                             }
@@ -259,9 +264,10 @@ int main(int argc, char *argv[]) {
         usleep(50000);
     }
     
+exit:
     lgGpiochipClose(gpio);
 
     kill(motord_pid, SIGUSR2); // unblock motord before exit
 
-    return 0;
+    return exit_status;
 }

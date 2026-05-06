@@ -21,8 +21,8 @@ int pwm_open(pwm_t *pwm, unsigned int chip, unsigned int channel) {
     pwm->channel = channel;
 
     /* default values */
-    pwm->period = 0;
-    pwm->duty_cycle = 0;
+    pwm->period_ns = 0;
+    pwm->duty_cycle_ns = 0;
     pwm->enable = false;
 
     char path[PATH_SIZE];
@@ -82,25 +82,13 @@ int pwm_open(pwm_t *pwm, unsigned int chip, unsigned int channel) {
     return 0;
 
 error:
-/*
-    if (pwm->export_file)
-        fclose(pwm->export_file);
-    if (pwm->unexport_file)
-        fclose(pwm->unexport_file);
-    if (pwm->period_file)
-        fclose(pwm->period_file);
-    if (pwm->duty_file)
-        fclose(pwm->duty_file);
-    if (pwm->enable_file)
-        fclose(pwm->enable_file);
-*/
     pwm_close(pwm);
 
     if (err) errno = err;
     return -1;
 }
 
-int pwm_set_period(pwm_t *pwm, uint64_t period) {
+int pwm_set_period(pwm_t *pwm, uint64_t period_ns) {
 
     /* if NULL */
     if (!pwm || !pwm->period_file) {
@@ -109,19 +97,28 @@ int pwm_set_period(pwm_t *pwm, uint64_t period) {
     }
 
     /* kernel error */
-    if (pwm->duty_cycle > period) {
+    if (pwm->duty_cycle_ns > period_ns) {
         errno = EINVAL;
         return -1;
     }
 
-    pwm->period = period;
+    pwm->period_ns = period_ns;
 
     /* write period to sysfs */
-    fprintf(pwm->period_file, "%" PRIu64, pwm->period);
+    fprintf(pwm->period_file, "%" PRIu64, pwm->period_ns);
     if (fflush(pwm->period_file) < 0)
         return -1;
 
     return 0;
+}
+
+int pwm_set_period_hz(pwm_t *pwm, uint32_t hz) {
+    if (hz == 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    uint64_t period_ns = 1000000000 / hz;
+    return pwm_set_period(pwm, period_ns);
 }
 
 int pwm_set_duty_cycle(pwm_t *pwm, uint64_t duty_cycle) {
@@ -133,18 +130,27 @@ int pwm_set_duty_cycle(pwm_t *pwm, uint64_t duty_cycle) {
     }
 
     /* kernel error */
-    if (duty_cycle > pwm->period) {
+    if (duty_cycle > pwm->period_ns) {
         errno = EINVAL;
         return -1;
     }
 
-    pwm->duty_cycle = duty_cycle;
+    pwm->duty_cycle_ns = duty_cycle;
 
-    fprintf(pwm->duty_file, "%" PRIu64, pwm->duty_cycle);
+    fprintf(pwm->duty_file, "%" PRIu64, pwm->duty_cycle_ns);
     if (fflush(pwm->duty_file) < 0)
         return -1;
 
     return 0;
+}
+
+int pwm_set_duty_cycle_percentage(pwm_t *pwm, uint8_t percent) {
+    if (percent > 100) {
+        errno = EINVAL;
+        return -1;
+    }
+    uint64_t duty_cycle = (pwm->period_ns * percent) / 100;
+    return pwm_set_duty_cycle(pwm, duty_cycle);
 }
 
 int pwm_enable(pwm_t *pwm, bool enable) {

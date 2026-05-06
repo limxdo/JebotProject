@@ -1,7 +1,8 @@
 #ifndef RUNTIME_H
 #define RUNTIME_H
 
-#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #define RUNTIME_PATH "/run/jebot"
 
