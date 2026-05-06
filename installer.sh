@@ -15,7 +15,7 @@ fi
 case "$1" in
     install)
         mkdir -p "$LIBEXECDIR"
-        cp bin/* "$LIBEXECDIR"/
+        cp -f bin/* "$LIBEXECDIR"/
         chmod +x "$LIBEXECDIR"/*
         ;;
     uninstall)
