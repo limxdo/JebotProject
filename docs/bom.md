@@ -31,7 +31,7 @@ All from [same link](https://a.aliexpress.com/_c3R4e76b):
 
 ## Motors & Drivers
 - **4x** 36GP-555 Planetary Gear DC motor with encoder - [link](https://a.aliexpress.com/_c4tq4hVp) - select `160RPM, 12V, With Fixed Bracket`
-- **2x** BTS7960 Motor Driver
+- **2x** BTS7960 Motor Driver - [link](https://a.aliexpress.com/_c3XeNz9H)
 - **1x** 65mm rubber wheels 12mm hex (4pcs) - [link](https://a.aliexpress.com/_c3XQDTb9) - select `910H-6017`
 - **1x** motor shaft adapter 8mm to 12mm hex (4pcs) - [link](https://a.aliexpress.com/_c2xTZkSJ) - select `Short Style-8mm`
 
@@ -40,7 +40,7 @@ All from [same link](https://a.aliexpress.com/_c3R4e76b):
 ## Sensors
 - **1x** INA219 module
 - **1x** MPU6050 module (Gyro + Accelerometer)
-- **2x** HC-SR04P Ultrasonic Sensor
+- **1x** HC-SR04P Ultrasonic Sensor (2pcs) - [link](https://a.aliexpress.com/_c3kpuWjd) - select `2PCS`
 
 ---
 
