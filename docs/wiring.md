@@ -134,3 +134,27 @@
 | GPIO 3  | `SCL_busbar`    |
 
 ---
+
+## Hardware Modifications
+
+### INA219 Module
+
+The onboard `R100` shunt resistor was removed from the INA219 module using soldering tools to allow the use of an external high-current shunt resistor.
+
+This modification enables accurate measurement of significantly higher currents using the external `50A 75mV` shunt resistor connected to `VIN+` and `VIN-`.
+
+![INA219 R100 removal](img/ina219-r100-removal.png)
+
+---
+
+### X1201 HAT
+
+A resistor responsible for the automatic power-on feature was removed from the X1201 HAT.
+
+This disables automatic startup when external power or charging power is connected. The Raspberry Pi 5 can now only be powered on using either the onboard button or the external button connected to the `PSW` header.
+
+This behavior is intentional for the project design. The battery disconnect is intended to completely cut power only, without automatically booting the Raspberry Pi again when switched back on.
+
+![X1201 auto power-on resistor removal](img/x1201-auto-poweron-removal.png)
+
+---
