@@ -59,6 +59,6 @@ All from [same link](https://a.aliexpress.com/_c3R4e76b):
 
 ## Other
 - **1x** Mini USB 2.0 Microphone - [link](https://a.aliexpress.com/_c4KDrzFH)
-- **1x** Metal Push Button with blue LED (self-reset) - [link](https://a.aliexpress.com/_c3lJ4G43) - select `Blue circle Power`
+- **1x** Metal Push Button with blue LED (self-reset) - [link](https://a.aliexpress.com/_c3lJ4G43) - select `Blue circle Power, 16mm(with wire), 3-6V, Self-reset`
 
 ---
