@@ -1,4 +1,5 @@
 #include "../include/pwm_sysfs.h"
+#include <stdint.h>
 #include <unistd.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -144,12 +145,12 @@ int pwm_set_duty_cycle(pwm_t *pwm, uint64_t duty_cycle) {
     return 0;
 }
 
-int pwm_set_duty_cycle_percentage(pwm_t *pwm, uint8_t percent) {
-    if (percent > 100) {
+int pwm_set_duty_cycle_percentage(pwm_t *pwm, float percent) {
+    if (percent > 100.0f || percent < 0.0f) {
         errno = EINVAL;
         return -1;
     }
-    uint64_t duty_cycle = (pwm->period_ns * percent) / 100;
+    uint64_t duty_cycle = (uint64_t)((pwm->period_ns * percent) / 100.0f);
     return pwm_set_duty_cycle(pwm, duty_cycle);
 }
 
