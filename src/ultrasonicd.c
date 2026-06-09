@@ -3,6 +3,7 @@
 #include "../include/logger.h"
 
 #include <lgpio.h>
+#include <pthread.h>
 #include <unistd.h>
 #include <signal.h>
 #include <fcntl.h>
@@ -13,21 +14,39 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-
-/* usage */
-#define USAGE "usage:\n\t--trig <trig_gpio>\n\t--echo <echo_gpio>"
+/* runtime path */
+#define ULTRASONICD_RUNTIME_PATH RUNTIME_PATH "/ultrasonicd"
 
 /* motord pid file */
 #define MOTORD_PIDFILE RUNTIME_PATH "/motord/pid"
 
 /* config */
-#define MAX_DISTANCE 30         // CM
-#define WAIT_TIME_US 750000     // 0.75 seconds in microseconds
+#define MAX_DISTANCE_CM 25
+
+/* GPIOs */
+#define RIGHT_ECHO 27
+#define RIGHT_TRIG 17
+
+#define LEFT_ECHO 25
+#define LEFT_TRIG 22
 
 /* global vars */
+int gpio = -1;                  // gpio handler (lgpio)
 volatile bool running = true;   // loop condition
 bool blocked = false;           // if sended signal to motord
-int gpio = -1;                  // gpio handler (lgpio)
+pid_t motord_pid = -1;
+
+typedef struct {
+    int trig;
+    int echo;
+
+    float distance_cm;
+
+    char dist_file_path[64];
+
+    pthread_t thread_id;
+    pthread_mutex_t lock;
+} ultrasonic_t;
 
 /* signal handler */
 void handler(int signum) {
@@ -89,7 +108,6 @@ uint64_t pulsein(int echo, uint64_t timeout_us) {
 
 /* get distance in cm */
 float get_distance(int trig, int echo) {
-    float distance;
     uint64_t duration;
 
     lgGpioWrite(gpio, trig, 0);
@@ -104,56 +122,72 @@ float get_distance(int trig, int echo) {
       * can get timeout_us for any distance (cm) from:
       * (2 * distance) / 0.0343
       */
-    duration = pulsein(echo, 10000); // 10000 for testing (~= 150cm)
+    duration = pulsein(echo, 10000); // 10000 for (~= 150cm)
 
-    distance = duration * 0.0343 / 2.0;
-
-    return distance; // CM
+    return (duration * 0.0343f / 2.0f); // CM
 }
 
-int main(int argc, char *argv[]) {
+/* thread func */
+void* ultrasonic_thread_func(void *arg) {
+    ultrasonic_t *ultrasonic = arg;
+
+    while (running) {
+
+        /* update distance */
+        pthread_mutex_lock(&ultrasonic->lock);
+        ultrasonic->distance_cm = get_distance(ultrasonic->trig, ultrasonic->echo);
+        pthread_mutex_unlock(&ultrasonic->lock);
+
+        usleep(50000);
+    }
+
+    pthread_mutex_lock(&ultrasonic->lock);
+    ultrasonic->distance_cm = 0.0f;
+    pthread_mutex_unlock(&ultrasonic->lock);
+
+    return NULL;
+}
+
+int write_distance(const char *path, const float distance) {
+    char tmp_path[128];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
+
+    int tmpfd = open(tmp_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (tmpfd < 0) return -1;
+
+    dprintf(tmpfd, "%.2f\n", distance);
+    close(tmpfd);
+
+    if (rename(tmp_path, path) < 0) {
+        unlink(tmp_path);
+        return -1;
+    }
+
+    return 0;
+}
+
+int main(void) {
 
     int exit_status = 0;
 
-    int trig = -1, echo = -1;
-
-    /* get trig & echo gpio number */
-    if (argc-1 < 4) {
-        fprintf(stderr, "missing args.\n");
-        fprintf(stderr, "%s\n", USAGE);
-        return 1;
+    if (runtime_init("ultrasonicd", 0755) < 0) {
+        log_fatal("Runtime failed: %s\n", strerror(errno));
+        exit_status = 1;
+        goto exit;
     }
-    else {
-        for (int i = 1; i < argc; i++) {
-            if (strcmp(argv[i], "--trig") == 0) {
-                trig = atoi(argv[i+1]);
-            }
-            else if (strcmp(argv[i], "--echo") == 0) {
-                echo = atoi(argv[i+1]);
-            }
-        }
-    }
-
-    if ((trig < 0 || echo < 0) || trig == echo) {
-        fprintf(stderr, "invalid args.\n");
-        return 1;
-    }
+    runtime_pid(getpid());
 
     /* get motord pid */
-    pid_t motord_pid;
     FILE *motord_pid_file = fopen(MOTORD_PIDFILE, "r");
-    if (!motord_pid_file) {
-        log_fatal("fopen %s: %s\n", MOTORD_PIDFILE, strerror(errno));
-        return 1;
+    if (motord_pid_file) {
+        fscanf(motord_pid_file, "%d", &motord_pid);
+        fclose(motord_pid_file);
     }
-    fscanf(motord_pid_file, "%d", &motord_pid);
-    fclose(motord_pid_file);
-    
-    /* try to send signal to motord */
-    if (kill(motord_pid, 0) < 0) {
-        log_fatal("kill %d: %s\n", motord_pid, strerror(errno));
-        return 1;
+    else {
+        motord_pid = -1;
     }
+
+
 
     gpio = lgGpiochipOpen(0);
     if (gpio < 0) {
@@ -171,81 +205,104 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-
     /* setup lines */
     int io = -1;
-    if ((io = lgGpioClaimOutput(gpio, LG_SET_OUTPUT, trig, 0)) < 0) {
+
+    if ((io = lgGpioClaimOutput(gpio, LG_SET_OUTPUT, RIGHT_TRIG, 0)) < 0) {
         log_fatal("%s\n", lguErrorText(io));
         exit_status = 1;
         goto exit;
     }
-    if ((io = lgGpioClaimInput(gpio, LG_SET_PULL_NONE, echo)) < 0) {
+    if ((io = lgGpioClaimInput(gpio, LG_SET_PULL_NONE, RIGHT_ECHO)) < 0) {
+        log_fatal("%s\n", lguErrorText(io));
+        exit_status = 1;
+        goto exit;
+    }
+
+    if ((io = lgGpioClaimOutput(gpio, LG_SET_OUTPUT, LEFT_TRIG, 0)) < 0) {
+        log_fatal("%s\n", lguErrorText(io));
+        exit_status = 1;
+        goto exit;
+    }
+    if ((io = lgGpioClaimInput(gpio, LG_SET_PULL_NONE, LEFT_ECHO)) < 0) {
         log_fatal("%s\n", lguErrorText(io));
         exit_status = 1;
         goto exit;
     }
 
 
-    /* vars */
-    float distance = 0, first_distance = 0;
-    uint64_t wait_time = 0;
-    bool waiting = false;
-    
+    /* ultrasonics */
+    ultrasonic_t front_right = {
+        .trig = RIGHT_TRIG,
+        .echo = RIGHT_ECHO,
+        .dist_file_path = ULTRASONICD_RUNTIME_PATH "/front_right",
+        0
+    };
+    ultrasonic_t front_left = {
+        .trig = LEFT_TRIG,
+        .echo = LEFT_ECHO,
+        .dist_file_path = ULTRASONICD_RUNTIME_PATH "/front_left",
+        0
+    };
+
+    pthread_create(&front_right.thread_id, NULL, ultrasonic_thread_func, &front_right);
+    pthread_create(&front_left.thread_id, NULL, ultrasonic_thread_func, &front_left);
 
     log_info("PID: %d\n", getpid());
-    log_info("Motord PID: %d\n", motord_pid);
 
     log_info("|********** Ultrasonicd Is Started **********|\n\n");
 
+
+    /* vars to copy distance from threads */
+    float right_distance, left_distance;
+
     while(running) {
-        distance = get_distance(trig, echo);
 
-        uint64_t now = timer_now(TIMER_US);
+        /* update motord pid */
+        motord_pid_file = fopen(MOTORD_PIDFILE, "r");
+        if (motord_pid_file) {
+            fscanf(motord_pid_file, "%d", &motord_pid);
+            fclose(motord_pid_file);
+        } else {
+            motord_pid = -1;
+        }
 
-        if (distance) { // if not timeouted
 
-            log_debug("distance:       %.2fcm\n", distance);
-            log_debug("first_distance: %.2fcm\n", first_distance);
+        /* get distances from threads */
+        pthread_mutex_lock(&front_right.lock);
+        right_distance = front_right.distance_cm;
+        pthread_mutex_unlock(&front_right.lock);
 
-            if (distance <= MAX_DISTANCE) {
-                if (!waiting) {
-                    /* start timer */
-                    first_distance = distance;
-                    wait_time = now;
-                    waiting = true;
+        pthread_mutex_lock(&front_left.lock);
+        left_distance = front_left.distance_cm;
+        pthread_mutex_unlock(&front_left.lock);
+
+        if (motord_pid > 0) {
+            if (right_distance || left_distance) {
+                if (right_distance <= MAX_DISTANCE_CM || left_distance <= MAX_DISTANCE_CM) {
+                    if (!blocked) {
+                        kill(motord_pid, SIGUSR1);
+                        blocked = true;
+                    }
                 }
                 else {
-                    if ((now - wait_time) >= WAIT_TIME_US) { // if timer timeout
-                        if (first_distance >= distance) {
-                            if (!blocked) {
-                                log_info("Obstacle Detected: %.2fcm\n", distance);
-                                kill(motord_pid, SIGUSR1);
-                                blocked = true;
-                            }
-                        }
-                        waiting = false;
+                    if (blocked) {
+                        kill(motord_pid, SIGUSR2);
+                        blocked = false;
                     }
                 }
             }
             else {
-                first_distance = 0;
-                waiting = false;
-
                 if (blocked) {
                     kill(motord_pid, SIGUSR2);
                     blocked = false;
                 }
             }
         }
-        else {
-            first_distance = 0;
-            waiting = false;
 
-            if (blocked) {
-                kill(motord_pid, SIGUSR2);
-                blocked = false;
-            }
-        }
+        /* write distances */
+        write_distance(front_right.dist_file_path, right_distance);
+        write_distance(front_left.dist_file_path, left_distance);
 
         /*
          * Main loop delay (in microseconds).
@@ -265,6 +322,14 @@ int main(int argc, char *argv[]) {
     }
     
 exit:
+    pthread_join(front_right.thread_id, NULL);
+    pthread_join(front_left.thread_id, NULL);
+
+    unlink(front_right.dist_file_path);
+    unlink(front_left.dist_file_path);
+
+    runtime_exit();
+
     lgGpiochipClose(gpio);
 
     kill(motord_pid, SIGUSR2); // unblock motord before exit
