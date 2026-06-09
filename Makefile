@@ -51,8 +51,8 @@ $(POWERD_OBJ): $(POWERD_SRC)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 
-$(ULTRASONICD_BIN): $(ULTRASONICD_OBJ) $(TIMER_OBJ)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) 
+$(ULTRASONICD_BIN): $(ULTRASONICD_OBJ) $(TIMER_OBJ) $(RUNTIME_OBJ)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) -lpthread
 
 $(ULTRASONICD_OBJ): $(ULTRASONICD_SRC)
 	$(CC) $(CFLAGS) -c -o $@ $<
