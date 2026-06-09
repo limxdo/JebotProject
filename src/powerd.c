@@ -10,7 +10,6 @@
 #include <errno.h>
 #include <signal.h>
 #include <string.h>
-#include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -39,21 +38,21 @@ volatile bool running = true;
 #define INA219_CAL_REG     0x05 // R/W
 
 /* config */
-#define RST         0b0     // reset off
-#define EMP         0b0     // empty bit (0)
-#define BRNG        0b0     // 16V
-#define PG          0b01    // +/-80mV
-#define BADC        0b1011  // 12-bit, 8 samples, 4.26ms
-#define SADC        0b1011  // ^^^^^^^^^^^^^^^^^^^^^^^^^
-#define MODE        0b111   // Shunt and bus, continuous
+#define RST      0b0     // reset off
+#define EMP      0b0     // empty bit (0)
+#define BRNG     0b0     // 16V
+#define PG       0b01    // +/-80mV
+#define BADC     0b1011  // 12-bit, 8 samples, 4.26ms
+#define SADC     0b1011  // ^^^^^^^^^^^^^^^^^^^^^^^^^
+#define MODE     0b111   // Shunt and bus, continuous
 // Bits
-#define RST_BIT     15
-#define EMP_BIT     14
-#define BRNG_BIT    13
-#define PG_BIT      11
-#define BADC_BIT    7
-#define SADC_BIT    3
-#define MODE_BIT    0
+#define RST_BIT  15
+#define EMP_BIT  14
+#define BRNG_BIT 13
+#define PG_BIT   11
+#define BADC_BIT 7
+#define SADC_BIT 3
+#define MODE_BIT 0
 
 /* Assembling the config bits */
 #define INA219_CONFIG (  \
@@ -91,11 +90,6 @@ struct ina219 {
     float vbus_V;
     float current_A;
     float power_W;
-
-    int vshunt_fd;
-    int vbus_fd;
-    int current_fd;
-    int power_fd;
 };
 
 void ina219_set_config(int fd, uint16_t config) {
@@ -197,24 +191,16 @@ void ina219_get_all(struct ina219 *ina) {
 
 void ina219_write_values(struct ina219 *ina) {
     /* Vshunt */
-    ftruncate(ina->vshunt_fd, 0);
-    lseek(ina->vshunt_fd, 0, SEEK_SET);
-    dprintf(ina->vshunt_fd, "%.3f\n", ina->vshunt_mV);
+    runtime_write_atomic(INA219_VSHUNT_PATH, 0644, "%.3f\n", ina->vshunt_mV);
 
     /* Vbus */
-    ftruncate(ina->vbus_fd, 0);
-    lseek(ina->vbus_fd, 0, SEEK_SET);
-    dprintf(ina->vbus_fd, "%.3f\n", ina->vbus_V);
+    runtime_write_atomic(INA219_VBUS_PATH, 0644, "%.3f\n", ina->vbus_V);
 
     /* Current */
-    ftruncate(ina->current_fd, 0);
-    lseek(ina->current_fd, 0, SEEK_SET);
-    dprintf(ina->current_fd, "%.4f\n", ina->current_A);
+    runtime_write_atomic(INA219_CURRENT_PATH, 0644, "%.4f\n", ina->current_A);
 
     /* Power */
-    ftruncate(ina->power_fd, 0);
-    lseek(ina->power_fd, 0, SEEK_SET);
-    dprintf(ina->power_fd, "%.4f\n", ina->power_W);
+    runtime_write_atomic(INA219_POWER_PATH, 0644, "%.4f\n", ina->power_W);
 }
 
 
@@ -238,10 +224,6 @@ struct x1201 {
     float voltage_V;
     float capacity;
     bool charging;
-
-    int voltage_fd;
-    int capacity_fd;
-    int charging_fd;
 };
 
 float x1201_get_capacity(int fd) {
@@ -290,19 +272,13 @@ void x1201_get_all(struct x1201 *hat) {
 
 void x1201_write_values(struct x1201 *hat) {
     /* Voltage */
-    ftruncate(hat->voltage_fd, 0);
-    lseek(hat->voltage_fd, 0, SEEK_SET);
-    dprintf(hat->voltage_fd, "%.3f\n", hat->voltage_V);
+    runtime_write_atomic(X1201_VOLTAGE_PATH, 0644, "%.3f\n", hat->voltage_V);
 
     /* Capacity */
-    ftruncate(hat->capacity_fd, 0);
-    lseek(hat->capacity_fd, 0, SEEK_SET);
-    dprintf(hat->capacity_fd, "%.2f\n", hat->capacity);
+    runtime_write_atomic(X1201_CAPACITY_PATH, 0644, "%.2f\n", hat->capacity);
 
     /* Charging */
-    ftruncate(hat->charging_fd, 0);
-    lseek(hat->charging_fd, 0, SEEK_SET);
-    dprintf(hat->charging_fd, "%d\n", hat->charging);
+    runtime_write_atomic(X1201_CHARGING_PATH, 0644, "%d\n", hat->charging);
 }
 
 
@@ -366,10 +342,6 @@ int main(void) {
     
     /* INA219 runtime */
     runtime_mkdir(INA219_RUNTIME, 0755);
-    ina219.vshunt_fd  = runtime_open(INA219_VSHUNT_PATH, O_WRONLY | O_CREAT, 0644);
-    ina219.vbus_fd    = runtime_open(INA219_VBUS_PATH, O_WRONLY | O_CREAT, 0644);
-    ina219.current_fd = runtime_open(INA219_CURRENT_PATH, O_WRONLY | O_CREAT, 0644);
-    ina219.power_fd   = runtime_open(INA219_POWER_PATH, O_WRONLY | O_CREAT, 0644);
 
 
     /* X1201 */
@@ -391,12 +363,7 @@ int main(void) {
 
     /* X1201 runtime */
     runtime_mkdir(X1201_RUNTIME, 0755);
-    x1201.voltage_fd  = runtime_open(X1201_VOLTAGE_PATH, O_WRONLY | O_CREAT, 0644);
-    x1201.capacity_fd = runtime_open(X1201_CAPACITY_PATH, O_WRONLY | O_CREAT, 0644);
-    x1201.charging_fd = runtime_open(X1201_CHARGING_PATH, O_WRONLY | O_CREAT, 0644);
 
-    log_info("PID: %d\n", getpid());
-    log_info("|********** Powerd Is Started **********|\n");
     while (running) {
         ina219_get_all(&ina219);
         ina219_write_values(&ina219);

@@ -14,13 +14,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* runtime path */
-#define ULTRASONICD_RUNTIME_PATH RUNTIME_PATH "/ultrasonicd"
-
 /* motord pid file */
 #define MOTORD_PIDFILE RUNTIME_PATH "/motord/pid"
 
-/* config */
+/* config (tmp) */
 #define MAX_DISTANCE_CM 25
 
 /* GPIOs */
@@ -122,7 +119,7 @@ float get_distance(int trig, int echo) {
       * can get timeout_us for any distance (cm) from:
       * (2 * distance) / 0.0343
       */
-    duration = pulsein(echo, 10000); // 10000 for (~= 150cm)
+    duration = pulsein(echo, 10000); // 10000 (tmp) for (~= 150cm)
 
     return (duration * 0.0343f / 2.0f); // CM
 }
@@ -148,24 +145,6 @@ void* ultrasonic_thread_func(void *arg) {
     return NULL;
 }
 
-int write_distance(const char *path, const float distance) {
-    char tmp_path[128];
-    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
-
-    int tmpfd = open(tmp_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (tmpfd < 0) return -1;
-
-    dprintf(tmpfd, "%.2f\n", distance);
-    close(tmpfd);
-
-    if (rename(tmp_path, path) < 0) {
-        unlink(tmp_path);
-        return -1;
-    }
-
-    return 0;
-}
-
 int main(void) {
 
     int exit_status = 0;
@@ -186,8 +165,6 @@ int main(void) {
     else {
         motord_pid = -1;
     }
-
-
 
     gpio = lgGpiochipOpen(0);
     if (gpio < 0) {
@@ -235,23 +212,18 @@ int main(void) {
     ultrasonic_t front_right = {
         .trig = RIGHT_TRIG,
         .echo = RIGHT_ECHO,
-        .dist_file_path = ULTRASONICD_RUNTIME_PATH "/front_right",
+        .dist_file_path = "front_right",
         0
     };
     ultrasonic_t front_left = {
         .trig = LEFT_TRIG,
         .echo = LEFT_ECHO,
-        .dist_file_path = ULTRASONICD_RUNTIME_PATH "/front_left",
+        .dist_file_path = "front_left",
         0
     };
 
     pthread_create(&front_right.thread_id, NULL, ultrasonic_thread_func, &front_right);
     pthread_create(&front_left.thread_id, NULL, ultrasonic_thread_func, &front_left);
-
-    log_info("PID: %d\n", getpid());
-
-    log_info("|********** Ultrasonicd Is Started **********|\n\n");
-
 
     /* vars to copy distance from threads */
     float right_distance, left_distance;
@@ -301,8 +273,8 @@ int main(void) {
         }
 
         /* write distances */
-        write_distance(front_right.dist_file_path, right_distance);
-        write_distance(front_left.dist_file_path, left_distance);
+        runtime_write_atomic(front_right.dist_file_path, 0644, "%.2f\n", right_distance);
+        runtime_write_atomic(front_left.dist_file_path, 0644, "%.2f\n", left_distance);
 
         /*
          * Main loop delay (in microseconds).
@@ -325,12 +297,9 @@ exit:
     pthread_join(front_right.thread_id, NULL);
     pthread_join(front_left.thread_id, NULL);
 
-    unlink(front_right.dist_file_path);
-    unlink(front_left.dist_file_path);
+    lgGpiochipClose(gpio);
 
     runtime_exit();
-
-    lgGpiochipClose(gpio);
 
     kill(motord_pid, SIGUSR2); // unblock motord before exit
 

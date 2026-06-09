@@ -1,6 +1,5 @@
 #include "../include/runtime.h"
 #include "../include/pwm_sysfs.h"
-#include "../include/timer.h"
 #include "../include/logger.h"
 
 #include <lgpio.h>
@@ -10,7 +9,7 @@
 #include <signal.h>
 #include <errno.h>
 #include <string.h>
-#include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -23,10 +22,10 @@
 
 
 /* PWMs */
-#define RIGHT_RPWM     pwm0 // pwm channel 0 -> GPIO 12
-#define RIGHT_LPWM     pwm1 // pwm channel 1 -> GPIO 13
-#define LEFT_RPWM      pwm2 // pwm channel 2 -> GPIO 18
-#define LEFT_LPWM      pwm3 // pwm channel 3 -> GPIO 19
+#define RIGHT_RPWM pwm0 // pwm channel 0 -> GPIO 12
+#define RIGHT_LPWM pwm1 // pwm channel 1 -> GPIO 13
+#define LEFT_RPWM  pwm2 // pwm channel 2 -> GPIO 18
+#define LEFT_LPWM  pwm3 // pwm channel 3 -> GPIO 19
 
 #define RIGHT_FORWARD  RIGHT_RPWM
 #define RIGHT_BACKWARD RIGHT_LPWM
@@ -190,8 +189,8 @@ void parse_cmd(struct request_args *request_args, char *request) {
     }
 }
 
-/* main function to moving */
-int move(cmd_t cmd, uint64_t distance_cm) {
+/* function to moving */
+int move(cmd_t cmd, ...) {
 
     /*
      * BTS7960 motor drivers connected to hardware PWM (sysfs).
@@ -202,6 +201,9 @@ int move(cmd_t cmd, uint64_t distance_cm) {
      * Gyro not yet integrated (planned for tank turn).
      */
 
+    va_list args;
+    va_start(args, cmd);
+
     /* reset values */
     target_pulses = 0;
     right_enc_a_counter = 0;
@@ -209,13 +211,13 @@ int move(cmd_t cmd, uint64_t distance_cm) {
     /* Temporary approximation: 2 cm * PULSES_PER_CM = ~90 angle turn (will be replaced with gyro) */
     uint64_t angle_90 = 2 * PULSES_PER_CM;
 
-    int status;
+    int status = 0;
 
     /* execute command and error checking */
     switch (cmd) {
     case CMD_MOVE_FORWARD:
         /* convert distance_cm to encoder pulses */
-        target_pulses = distance_cm * PULSES_PER_CM;
+        target_pulses = va_arg(args, uint64_t) * PULSES_PER_CM;
 
         /* check if pwm failed */
         if (
@@ -224,14 +226,13 @@ int move(cmd_t cmd, uint64_t distance_cm) {
             ((status = pwm_enable(&LEFT_FORWARD, true)) < 0) ||
             ((status = pwm_enable(&LEFT_BACKWARD, false)) < 0)
         ) {
-            move(CMD_STOP, 0); // try to stop motors
-            return status;
+            move(CMD_STOP); // try to stop motors
         }
 
         break;
 
     case CMD_MOVE_BACKWARD:
-        target_pulses = distance_cm * PULSES_PER_CM;
+        target_pulses = va_arg(args, uint64_t) * PULSES_PER_CM;
 
         if (
             ((status = pwm_enable(&RIGHT_FORWARD, false)) < 0) ||
@@ -239,8 +240,7 @@ int move(cmd_t cmd, uint64_t distance_cm) {
             ((status = pwm_enable(&LEFT_FORWARD, false)) < 0) ||
             ((status = pwm_enable(&LEFT_BACKWARD, true)) < 0)
         ) {
-            move(CMD_STOP, 0);
-            return status;
+            move(CMD_STOP);
         }
 
         break;
@@ -253,8 +253,7 @@ int move(cmd_t cmd, uint64_t distance_cm) {
             ((status = pwm_enable(&LEFT_FORWARD, true)) < 0) ||
             ((status = pwm_enable(&LEFT_BACKWARD, false)) < 0)
         ) {
-            move(CMD_STOP, 0);
-            return status;
+            move(CMD_STOP);
         }
 
         break;
@@ -267,25 +266,17 @@ int move(cmd_t cmd, uint64_t distance_cm) {
             ((status = pwm_enable(&LEFT_FORWARD, false)) < 0) ||
             ((status = pwm_enable(&LEFT_BACKWARD, true)) < 0)
         ) {
-            move(CMD_STOP, 0);
-            return status;
+            move(CMD_STOP);
         }
 
         break;
 
     case CMD_STOP:
         /* do not call move(CMD_STOP, 0) again to avoid recursion if pwm failed */
-        if (
-            ((status = pwm_enable(&RIGHT_FORWARD, false)) < 0) ||
-            ((status = pwm_enable(&RIGHT_BACKWARD, false)) < 0) ||
-            ((status = pwm_enable(&LEFT_FORWARD, false)) < 0) ||
-            ((status = pwm_enable(&LEFT_BACKWARD, false)) < 0)
-        ) {
-            target_pulses = 0;
-            right_enc_a_counter = 0;
-            left_enc_a_counter = 0;
-            return status;
-        }
+        status = pwm_enable(&RIGHT_FORWARD, false);
+        status = pwm_enable(&RIGHT_BACKWARD, false);
+        status = pwm_enable(&LEFT_FORWARD, false);
+        status = pwm_enable(&LEFT_BACKWARD, false);
 
         target_pulses = 0;
         right_enc_a_counter = 0;
@@ -293,16 +284,17 @@ int move(cmd_t cmd, uint64_t distance_cm) {
         break;
     
     default:
-        return -1;
+        status = -1;
     }
 
-    return 0;
+    va_end(args);
+    return status;
 }
 
 /* reply function */
 void reply(reply_t reply) {
 
-    usleep(20000); // delay before replying
+    int total_wait_us = 20000;
 
     int reply_fifo_fd = -1;
     char msg[16];
@@ -324,8 +316,12 @@ void reply(reply_t reply) {
         return;
     }
 
-    /* open MOTORD_REPLY_FIFO */
-    if ((reply_fifo_fd = open(MOTORD_REPLY_FIFO, O_WRONLY | O_NONBLOCK)) < 0) {
+    int tries = 4;
+    /* open MOTORD_REPLY_FIFO with tries */
+    while ((reply_fifo_fd = open(MOTORD_REPLY_FIFO, O_WRONLY | O_NONBLOCK)) < 0 && tries-- > 0) {
+        usleep(total_wait_us / tries);
+    }
+    if (reply_fifo_fd < 0) {
         log_err("REPLY: ERROR (%s)\n", strerror(errno));
         return;
     }
@@ -404,13 +400,11 @@ int main(void) {
     pwm_set_duty_cycle_percentage(&LEFT_BACKWARD, DUTY_CYCLE_PERCENT);
 
     /* creating MOTORD_CMD_FIFO */
-    unlink(MOTORD_CMD_FIFO); // if exists
-    if (mkfifo(MOTORD_CMD_FIFO, 0622) < 0) {
-        log_fatal("mkfifo %s: %s\n", MOTORD_CMD_FIFO, strerror(errno));
+    if (runtime_fifo("cmd", 0622) < 0) {
+        log_fatal("runtime_fifo %s: %s\n", MOTORD_CMD_FIFO, strerror(errno));
         exit_status = 1;
         goto exit;
     }
-    chmod(MOTORD_CMD_FIFO, 0622);
 
     /* open fd for MOTORD_CMD_FIFO */
     int cmd_fifo_fd = -1;
@@ -421,14 +415,11 @@ int main(void) {
     }
 
     /* creating MOTORD_REPLY_FIFO */
-    unlink(MOTORD_REPLY_FIFO);
-    if (mkfifo(MOTORD_REPLY_FIFO, 0644) < 0) {
-        log_fatal("mkfifo %s: %s\n", MOTORD_REPLY_FIFO, strerror(errno));
+    if (runtime_fifo("reply", 0644) < 0) {
+        log_fatal("runtime_fifo %s: %s\n", MOTORD_REPLY_FIFO, strerror(errno));
         exit_status = 1;
         goto exit;
     }
-    chmod(MOTORD_REPLY_FIFO, 0644);
-
 
     /* Starting the daemon */
     char request[256];
@@ -438,14 +429,11 @@ int main(void) {
     struct request_args request_args;
     parse_cmd(&request_args, NULL);
 
-
-    log_info("PID: %d\n", getpid());
-    log_info("|********** Motord Is Started **********|\n");
     while (running) {
         /* if exists command, check if command finished */
-        // if (target_pulses && (right_enc_a_counter >= target_pulses && left_enc_a_counter >= target_pulses)) {
-        if (target_pulses && ((right_enc_a_counter + left_enc_a_counter) / 2 >= target_pulses)) {
-            move(CMD_STOP, 0);
+        // if (target_pulses && ((right_enc_a_counter + left_enc_a_counter) / 2 >= target_pulses)) {
+        if (target_pulses && (right_enc_a_counter >= target_pulses && left_enc_a_counter >= target_pulses)) {
+            move(CMD_STOP);
             log_info("EXECUTION: SUCCESS\n");
             /* if need to reply */
             if (request_args.reply)
@@ -455,7 +443,7 @@ int main(void) {
         }
         else if (request_args.cmd == CMD_MOVE_FORWARD && blocked) { // block the command if already executing
             log_info("EXECUTION: BLOCKED\n");
-            move(CMD_STOP, 0);
+            move(CMD_STOP);
             if (request_args.reply)
                 reply(REPLY_BLOCKED);
             /* reset values to avoid print loop */
@@ -473,7 +461,7 @@ int main(void) {
                 else
                     log_info("EXECUTION: SKIPPED\n");
                 if (request_args.reply) {
-                    move(CMD_STOP, 0);
+                    move(CMD_STOP);
                     reply(REPLY_SKIPPED);
                 }
             }
@@ -509,7 +497,7 @@ int main(void) {
 
                 if (move_ret < 0) {
                     log_err("EXECUTION: FAILED (%s)\n", errno ? strerror(errno) : lguErrorText(move_ret));
-                    move(CMD_STOP, 0);
+                    move(CMD_STOP);
                     if (request_args.reply)
                         reply(REPLY_FAILED);
                 }
@@ -526,7 +514,7 @@ int main(void) {
 
 exit:
     /* stop motors */
-    move(CMD_STOP, 0);
+    move(CMD_STOP);
 
     /* close gpiochip */
     lgGpiochipClose(gpio);
@@ -538,8 +526,6 @@ exit:
     pwm_close(&pwm3);
 
     close(cmd_fifo_fd);
-    unlink(MOTORD_CMD_FIFO);
-    unlink(MOTORD_REPLY_FIFO);
 
     runtime_exit();
 
