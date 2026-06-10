@@ -2,7 +2,7 @@
 
 import json
 import alsaaudio
-from vosk import Model, KaldiRecognizer
+from vosk import Model, KaldiRecognizer, SetLogLevel
 import os
 import time
 
@@ -17,11 +17,15 @@ def load_model(model_path: str, model_name: str):
 
 TimeEnd=0
 Model_name=None
-def listen(model_name: str, timeout=0, sample_rate_in=16000, costom_words=None, Device="plug:default", period_size=16000, channels=1): # costom_words is list!
+def listen(model_name: str, timeout=0, sample_rate_in=16000, costom_words=None, Device="plug:default", period_size=16000, channels=1, Logs=False): # costom_words is list!
     global Model_name
-    Model_name = model_name
     global TimeEnd
     global models_dict
+    
+    Model_name = model_name
+
+    if Logs==False:
+        SetLogLevel(-1)
 
     if model_name not in models_dict:
         raise ValueError(f"model: \"{model_name}\" not loaded, please load model!")
