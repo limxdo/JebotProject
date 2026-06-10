@@ -4,6 +4,7 @@ import json
 import alsaaudio
 from vosk import Model, KaldiRecognizer
 import os
+import time
 
 models_dict = {}
 def load_model(model_path: str, model_name: str):
@@ -14,38 +15,41 @@ def load_model(model_path: str, model_name: str):
 
     models_dict[model_name] = Model(model_path)
 
-def listen(model_name: str, timeout=0,noise=8000):
+TimeEnd=0
+Model_name=None
+def listen(model_name: str, timeout=0, sample_rate_in=16000, costom_words=None, Device="plug:default", period_size=16000, channels=1): # costom_words is list!
+    global Model_name
+    Model_name = model_name
+    global TimeEnd
     global models_dict
-    modifier = 0.25
-    if not timeout:
-        timeout = 1
-        modifier = 0
-
-    sample_rate = 16000
-    channels = 1
-    period_size = 16000
 
     if model_name not in models_dict:
-        raise ValueError(f"model: '{model_name}' not loaded")
+        raise ValueError(f"model: \"{model_name}\" not loaded, please load model!")
 
-    recognizer = KaldiRecognizer(models_dict[model_name], sample_rate)
-       
+    # Processing the model
+    # vvvvvvvvvvvvvvvvvvvv
+    if costom_words!=None:
+        costom_words = json.dumps(costom_words)
+        recognizer = KaldiRecognizer(models_dict[model_name], sample_rate_in, costom_words)
+    else:
+        recognizer = KaldiRecognizer(models_dict[model_name], sample_rate_in)
+    # ^^^^^^^^^^^^^^^^^^^^
+    #      processed.
     pcm = alsaaudio.PCM(
-        type=alsaaudio.PCM_CAPTURE,
-        mode=alsaaudio.PCM_NORMAL,
-        device="plug:default"
+    type=alsaaudio.PCM_CAPTURE,
+    mode=alsaaudio.PCM_NORMAL,
+    device=Device,
+    channels=channels,
+    rate=sample_rate_in,
+    format=alsaaudio.PCM_FORMAT_S16_LE,
+    periodsize=period_size
     )
 
-    pcm.setchannels(channels)
-    pcm.setrate(sample_rate)
-    pcm.setformat(alsaaudio.PCM_FORMAT_S16_LE)
-    pcm.setperiodsize(period_size)
-
-    print("listening... press ctrl+c to stop.")
+    TimeEnd = time.time() + timeout
 
     try:
-        while timeout: 
-            timeout -= modifier
+        while TimeEnd > time.time(): 
+
             length, data = pcm.read()
 
             if length == 0:
@@ -62,10 +66,36 @@ def listen(model_name: str, timeout=0,noise=8000):
         return None
 
 # function to get a strongest key in 'data'
-def simple(value: str, data: dict):
 
+def char_by_char_simple(value: str, value2 : str): # returns ratio of similarity
+    index_mem = 0
+    score = 0
+    if len(value)<=len(value2):
+        try:
+            for char in value:
+                if value[index_mem-1]==value2[index_mem] or\
+                    value[index_mem+1]==value2[index_mem] or\
+                    value[index_mem]==value2[index_mem]:
+                    score+=1
+                index_mem+=1
+        except:
+            index_mem+=1
+    elif len(value)>=len(value2):
+        try:
+            for char in value2:
+                if value[index_mem-1]==value2[index_mem] or\
+                    value[index_mem+1]==value2[index_mem] or\
+                    value[index_mem]==value2[index_mem]:
+                    score+=1
+                index_mem+=1
+        except:
+            index_mem+=1
+    return (score/index_mem)*100
+
+def simple(value: str, data: dict, miniweight=75.0) :
     high = 0                 # biggest strong for keys in the outdata
     outdata = {}             # out data from data: dict
+    clean_value = value
     value = value.split()
 
     for keys in data:
@@ -84,20 +114,45 @@ def simple(value: str, data: dict):
     if not high:    # if the 'value' is not in 'data'
         return None
 
+    highers=0
     for key in outdata:          # <<
         if outdata[key] == high: # << take the strongest key in 'outdata'
-            return key           # <<
+            highers+=1
+    if highers==1:
+        for key in outdata:
+            if outdata[key] == high:
+                return key
+    elif highers>1:             # will search in highers to take it char by char simple
+        highers_list = []
+        for keys in outdata:
+            if outdata[keys] == high and(not keys in highers_list):
+                highers_list.append(keys)
+        higher_char = 0
+        weight = 0
+        for highers_in in highers_list:
+            if weight < char_by_char_simple(highers_in, clean_value):
+                weight = char_by_char_simple(highers_in, clean_value)
+                
+        print(weight)
+        if weight>=miniweight:
+            for highers_in in highers_list:
+                if weight == char_by_char_simple(highers_in, clean_value):
+                    print(weight)
+                    return highers_in
+# example to use
+# vvvvvvvvvvvvvv
 
-"""
-example to use
-
-data = {
-    "go to manager room": "GOTO_MANAGER-ROOM",
-    "go to first class room": "GOTO_FIRST-CLASS",
-    "go to second class room": "GOTO_SECOND-CLASS",
-    "go to third class room": "GOTO_THIRD-CLASS",
-}
-
-key = simple('manager', data) # return: go to manager room
-print(data[key] if key else None) # GOTO_MANAGER-ROOM
-"""
+# data = {
+#     "go to manager room": "GOTO_MANAGER_ROOM",
+#     "go to first class room": "GOTO_FIRST_CLASS",
+#     "go to second class room": "GOTO_SECOND_CLASS",
+#     "go to third class room": "GOTO_THIRD_CLASS",
+# }
+# 
+# costom_words_list = [ "where", "is", "the", "manager", "first", "second", "third", "room", "class", "classroom" ]
+# load_model("enm", "md")
+# listent = listen("md", 30, 16000)
+# print(listent)
+# key = simple(listent, data)
+# if key != "None":
+#   print(data[key])

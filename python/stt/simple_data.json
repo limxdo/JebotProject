@@ -1,0 +1,6 @@
+{
+    "go to manager room": "GOTO_MANAGER_ROOM",
+    "go to first class room": "GOTO_FIRST_CLASS",
+    "go to second class room": "GOTO_SECOND_CLASS",
+    "go to third class room": "GOTO_THIRD_CLASS"
+}
