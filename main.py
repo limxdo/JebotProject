@@ -39,7 +39,7 @@ try:
 
     signal.signal(signal.SIGINT, handler)
     signal.signal(signal.SIGTERM, handler)
-    signal.signal(signal.SIGPIPE, handler)
+    signal.signal(signal.SIGPIPE, signal.SIG_IGN)
 
     # create paths
     os.mkdir(CACHE_PATH, 0o755)
