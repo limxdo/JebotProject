@@ -12,8 +12,7 @@ RUNTIME_PATH      = "/run/jebot"
 STTD_RUNTIME_PATH = RUNTIME_PATH + "/sttd"
 STTD_TEXT_FILE    = STTD_RUNTIME_PATH + "/text"
 STTD_LANG_FILE    = STTD_RUNTIME_PATH + "/lang"
-
-STTD_DATA_FILE  = STTD_SHARE_PATH + "simple_data.json"
+STTD_DATA_FILE  = "simple_data.json"
 
 try:
     running = True
