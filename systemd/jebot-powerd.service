@@ -1,0 +1,14 @@
+[Unit]
+Description=Power Daemon
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/libexec/jebot/powerd
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
