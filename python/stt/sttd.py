@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 
-import stt # replace it with 'jebot.stt' later
+import jebot.stt
 import os
 import sys
 import signal
 from time import sleep
 import json
 
-# constents
+# Base Paths
 RUNTIME_PATH      = "/run/jebot"
+STT_DATA_PATH     = "/usr/local/share/jebot/data/stt"
+
+# Fork Paths
 STTD_RUNTIME_PATH = RUNTIME_PATH + "/sttd"
 STTD_TEXT_FILE    = STTD_RUNTIME_PATH + "/text"
 STTD_LANG_FILE    = STTD_RUNTIME_PATH + "/lang"
-STTD_DATA_FILE  = "simple_data.json"
+STT_MODELS_PATH   = STT_DATA_PATH + "/models"
+STTD_DATA_FILE    = STT_DATA_PATH + "/simple_data.json"
 
 try:
     running = True
@@ -65,7 +69,7 @@ try:
     null = os.open("/dev/null", os.O_WRONLY)
     fd_back = os.dup(2)
     os.dup2(null, 2)
-    stt.load_model("enm", Lang)
+    stt.load_model(f"{STT_MODELS_PATH}/enm", Lang)
     os.dup2(fd_back, 2)
     os.close(null)
 except Exception as e:
