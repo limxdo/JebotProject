@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import jebot.stt
+import jebot.stt as stt
 import os
 import sys
 import signal
