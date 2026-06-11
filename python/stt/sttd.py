@@ -8,7 +8,7 @@ from time import sleep
 import json
 
 # constents
-RUNTIME_PATH      = "run/jebot"
+RUNTIME_PATH      = "/run/jebot"
 STTD_RUNTIME_PATH = RUNTIME_PATH + "/sttd"
 STTD_TEXT_FILE    = STTD_RUNTIME_PATH + "/text"
 STTD_LANG_FILE    = STTD_RUNTIME_PATH + "/lang"
