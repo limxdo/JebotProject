@@ -27,6 +27,10 @@ X1201_CAPACITY = "/run/powerd/x1201/capacity"
 ULTRASONICD_FRONT_RIGHT = "/run/jebot/ultrasonicd/front_right"
 ULTRASONICD_FRONT_LEFT  = "/run/jebot/ultrasonicd/front_left"
 
+# sttd
+STTD_TEXT_FILE  = "/run/jebot/sttd/text"
+STTD_LANG_FILE  = "/run/jebot/sttd/lang"
+
 
 # setup, any exceptions based on 'Exception' here is fatal
 try:
@@ -40,6 +44,20 @@ try:
     signal.signal(signal.SIGINT, handler)
     signal.signal(signal.SIGTERM, handler)
     signal.signal(signal.SIGPIPE, signal.SIG_IGN)
+
+    # function to get user command from sttd
+    def get_user_command():
+        with open(STTD_TEXT_FILE, 'r') as f:
+            cmd = f.read().strip()
+
+        if cmd: return cmd
+        else: return None
+
+    def get_current_lang():
+        with open(STTD_LANG_FILE, 'r') as f:
+            return f.read().strip()
+
+    current_lang = get_current_lang()
 
     # create paths
     os.mkdir(CACHE_PATH, 0o755)
