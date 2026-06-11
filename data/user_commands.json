@@ -1,0 +1,6 @@
+{
+    "SIMPLED_COMMAND_FROM_STTD": {
+        "sound": "sound_file_name, or null",
+        "point": "point name in map.json or [x, y] direct, or null"
+    }
+}

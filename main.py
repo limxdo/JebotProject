@@ -4,11 +4,15 @@ import os
 import sys
 import signal
 from time import sleep
+import json
 
 # Constants
 # jebot data paths
 CACHE_PATH = "/var/cache/jebot"
-SHARE_PATH = "/usr/local/share/jebot" # read only data
+DATA_PATH = "/usr/local/share/jebot/data" # read only data
+
+# general
+USER_COMMANDS_FILE = DATA_PATH + "/user_commands.json"
 
 # motord
 MOTORD_CMD_FIFO    = "/run/jebot/motord/cmd"
@@ -58,6 +62,10 @@ try:
             return f.read().strip()
 
     current_lang = get_current_lang()
+
+    # load USER_COMMANDS_FILE
+    with open(USER_COMMANDS_FILE, "r") as f:
+        user_commands = json.load(f)
 
     # create paths
     os.mkdir(CACHE_PATH, 0o755)
