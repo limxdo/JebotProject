@@ -34,7 +34,7 @@
 
 /* PWM config */
 #define PERIOD_HZ          10000 // 10kHz
-#define DUTY_CYCLE_PERCENT 50
+#define DUTY_CYCLE_PERCENT 35
 
 
 /* Encoders */
@@ -292,12 +292,12 @@ int move(cmd_t cmd, ...) {
 }
 
 /* reply function */
-void reply(reply_t reply) {
+void reply(reply_t reply, uint64_t moved) {
 
     int total_wait_us = 20000;
 
     int reply_fifo_fd = -1;
-    char msg[16];
+    char msg[32];
 
     switch (reply) {
     case REPLY_SUCCESS:
@@ -307,10 +307,16 @@ void reply(reply_t reply) {
         strcpy(msg, "FAILED\n");
         break;
     case REPLY_SKIPPED:
-        strcpy(msg, "SKIPPED\n");
+        if (moved)
+            snprintf(msg, sizeof(msg), "SKIPPED %"PRIu64"\n", moved);
+        else
+            strcpy(msg, "SKIPPED\n");
         break;
     case REPLY_BLOCKED:
-        strcpy(msg, "BLOCKED\n");
+        if (moved)
+            snprintf(msg, sizeof(msg), "BLOCKED %"PRIu64"\n", moved);
+        else
+            strcpy(msg, "BLOCKED\n");
         break;
     default:
         return;
@@ -424,6 +430,7 @@ int main(void) {
     /* Starting the daemon */
     char request[256];
     ssize_t rn;
+    uint64_t moved;
 
     int move_ret = -1;
     struct request_args request_args;
@@ -437,15 +444,16 @@ int main(void) {
             log_info("EXECUTION: SUCCESS\n");
             /* if need to reply */
             if (request_args.reply)
-                reply(REPLY_SUCCESS);
+                reply(REPLY_SUCCESS, 0);
             /* reset values */
             parse_cmd(&request_args, NULL);
         }
         else if (request_args.cmd == CMD_MOVE_FORWARD && blocked) { // block the command if already executing
-            log_info("EXECUTION: BLOCKED\n");
+            moved = ((right_enc_a_counter + left_enc_a_counter) / 2 / PULSES_PER_CM);
+            log_info("EXECUTION: BLOCKED (%"PRIu64" cm moved)\n", moved);
             move(CMD_STOP);
             if (request_args.reply)
-                reply(REPLY_BLOCKED);
+                reply(REPLY_BLOCKED, moved);
             /* reset values to avoid print loop */
             parse_cmd(&request_args, NULL);
         }
@@ -456,14 +464,18 @@ int main(void) {
             else request[rn] = '\0';
 
             if (target_pulses) {
-                if (request_args.cmd == CMD_MOVE_FORWARD || request_args.cmd == CMD_MOVE_BACKWARD)
-                    log_info("EXECUTION: SKIPPED (%"PRIu64" cm left)\n", (request_args.distance_cm - ((right_enc_a_counter + left_enc_a_counter) / 2 / PULSES_PER_CM)));
-                else
-                    log_info("EXECUTION: SKIPPED\n");
-                if (request_args.reply) {
-                    move(CMD_STOP);
-                    reply(REPLY_SKIPPED);
+                if (request_args.cmd == CMD_MOVE_FORWARD || request_args.cmd == CMD_MOVE_BACKWARD) {
+                    moved = ((right_enc_a_counter + left_enc_a_counter) / 2 / PULSES_PER_CM);
+                    log_info("EXECUTION: SKIPPED (%"PRIu64" cm moved)\n", moved);
+                    if (request_args.reply)
+                        reply(REPLY_SKIPPED, moved);
                 }
+                else {
+                    log_info("EXECUTION: SKIPPED\n");
+                    if (request_args.reply)
+                        reply(REPLY_SKIPPED, 0);
+                }
+                move(CMD_STOP);
             }
 
             log_print("\n");
@@ -488,7 +500,7 @@ int main(void) {
             else if (request_args.cmd == CMD_MOVE_FORWARD && blocked) { // block command before executing
                 log_info("EXECUTION: BLOCKED\n");
                 if (request_args.reply) {
-                    reply(REPLY_BLOCKED);
+                    reply(REPLY_BLOCKED, 0);
                 }
                 parse_cmd(&request_args, NULL);
             }
@@ -499,12 +511,12 @@ int main(void) {
                     log_err("EXECUTION: FAILED (%s)\n", errno ? strerror(errno) : lguErrorText(move_ret));
                     move(CMD_STOP);
                     if (request_args.reply)
-                        reply(REPLY_FAILED);
+                        reply(REPLY_FAILED, 0);
                 }
                 else if (request_args.cmd == CMD_STOP) {
                     log_info("EXECUTION: SUCCESS\n");
                     if (request_args.reply)
-                        reply(REPLY_SUCCESS);
+                        reply(REPLY_SUCCESS, 0);
                 }
             }
         }
