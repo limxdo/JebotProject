@@ -1,4 +1,4 @@
-ty#!/usr/bin/env python3
+#!/usr/bin/env python3
 #this is a test map you can use
 # 11111111111111111111,
 # 11000000000000000101,
@@ -14,6 +14,7 @@ ty#!/usr/bin/env python3
 import heapq
 import numpy as np 
 import os
+import sys
 
 
 
@@ -161,7 +162,7 @@ def send(pipe_send : str,pipe_replay : str,command : int) -> str:
 # Map = np.zeros((3,3))
 # way = path(Map,(0,0),(2,2))
 # commands,lst_current_points,key = command(way,"down")
-
+# print(commands)
 
 # Map shape
 # [
