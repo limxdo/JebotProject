@@ -2,5 +2,12 @@
     "go to manager room": "GOTO_MANAGER_ROOM",
     "go to first class room": "GOTO_FIRST_CLASS",
     "go to second class room": "GOTO_SECOND_CLASS",
-    "go to third class room": "GOTO_THIRD_CLASS"
+    "go to third class room": "GOTO_THIRD_CLASS",
+    "hello hi are you": "HELLO_HOW_ARE_YOU",
+    "can i join this school": "JION_SCHOOL",
+    "who is the manager": "WHO_THE_MANAGER",
+    "what is this school": "WHAT_THE_SCHOOL",
+    "bye see you": "BYE_SEE_YOU",
+    "what students student are is benifit": "STUDENTS_BENFIT",
+    "what the technology program programs": "TECH_PROGRAMS"
 }

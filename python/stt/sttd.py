@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
+import sys
+sys.dont_write_bytecode = True
+
 import jebot.stt as stt
 import os
-import sys
 import signal
 from time import sleep
 import json
@@ -65,15 +67,19 @@ try:
     with open(STTD_LANG_FILE, "w") as lang_file:
         lang_file.write(Lang + "\n")
 
-    # shutting up the vosk log messges
+    # check model
+    if not os.path.exists(f"{STT_MODELS_PATH}/{Lang}"):
+        raise FileNotFoundError(f"model {Lang} not found")
+
+    # load model
     null = os.open("/dev/null", os.O_WRONLY)
     fd_back = os.dup(2)
     os.dup2(null, 2)
-    stt.load_model(f"{STT_MODELS_PATH}/enm", Lang)
+    stt.load_model(f"{STT_MODELS_PATH}/{Lang}", Lang)
     os.dup2(fd_back, 2)
     os.close(null)
 except Exception as e:
-    print(f"FATAL ERROR: {e}", file=sys.stderr)
+    print(f"FATAL ERROR: {e}", file=sys.stderr, flush=True)
     sys.exit(1)
 
 
@@ -81,17 +87,22 @@ while running:
     try:
         sleep(0.5)
         text = stt.listen("en", 10, costom_words=custom_words)
-        if isinstance(text, str): #and MAGIC_WORD in raw_text.split():
-            print("new text detected.")
-            write_text(data[stt.simple(text, data)])
+        if isinstance(text, str):
+            print(f"new text detected: {text}", flush=True)
+
+            key = stt.simple(text, data)
+            if key:
+                print(data[key], flush=True)
+                write_text(f"{data[key]}\n")
+            else:
+                write_text("NOT_UNDERSTAND\n")
         else:
             write_text("");
     except Exception as e:
-        print(f"ERROR: {e}", file=sys.stderr)
+        print(f"ERROR: {e}", file=sys.stderr, flush=True)
 
 # exit
 try:
-    text_file.close()
     os.remove(STTD_TEXT_FILE)
     os.remove(STTD_LANG_FILE)
     os.rmdir(STTD_RUNTIME_PATH)
