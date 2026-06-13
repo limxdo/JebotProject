@@ -1,0 +1,14 @@
+[Unit]
+Description=Speech To Text Daemon
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/lib/jebot-venv/bin/python3 /usr/local/libexec/jebot/sttd.py
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
