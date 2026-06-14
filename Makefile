@@ -38,7 +38,7 @@ $(shell mkdir -p $(BUILD) $(BIN))
 all: $(MOTORD_BIN) $(POWERD_BIN) $(ULTRASONICD_BIN)
 
 $(MOTORD_BIN): $(MOTORD_OBJ) $(RUNTIME_OBJ) $(TIMER_OBJ) $(PWM_SYSFS_OBJ)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) 
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) -lm
 
 $(MOTORD_OBJ): $(MOTORD_SRC)
 	$(CC) $(CFLAGS) -c -o $@ $<
