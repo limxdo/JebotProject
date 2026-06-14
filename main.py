@@ -9,10 +9,11 @@ import json
 # Constants
 # jebot data paths
 CACHE_PATH = "/var/cache/jebot"
-DATA_PATH = "/usr/local/share/jebot/data" # read only data
+VAR_PATH   = "/var/lib/jebot"
+SHARE_PATH = "/usr/local/share/jebot"
 
 # general
-USER_COMMANDS_FILE = DATA_PATH + "/user_commands.json"
+USER_COMMANDS_FILE = SHARE_PATH + "/user_commands.json"
 
 # motord
 MOTORD_CMD_FIFO    = "/run/jebot/motord/cmd"
@@ -68,8 +69,13 @@ try:
         user_commands = json.load(f)
 
     # create paths
-    os.mkdir(CACHE_PATH, 0o755)
+    if not os.path.exists(CACHE_PATH):
+        os.mkdir(CACHE_PATH, 0o755)
     os.chmod(CACHE_PATH, 0o755)
+
+    if not os.path.exists(VAR_PATH):
+        os.mkdir(VAR_PATH, 0o755)
+    os.chmod(VAR_PATH, 0o755)
 
 except Exception as e:
     print(f"FATAL ERROR: {e}", file=sys.stderr, flush=True)

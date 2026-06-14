@@ -11,7 +11,7 @@ import json
 
 # Base Paths
 RUNTIME_PATH      = "/run/jebot"
-STT_DATA_PATH     = "/usr/local/share/jebot/data/stt"
+STT_DATA_PATH     = "/usr/local/share/jebot/stt"
 
 # Fork Paths
 STTD_RUNTIME_PATH = RUNTIME_PATH + "/sttd"

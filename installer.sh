@@ -6,13 +6,11 @@ LIBEXEC_DIR="/usr/local/libexec/jebot"
 SHARE_DIR="/usr/local/share/jebot"
 SYSTEMD_DIR="/etc/systemd/system"
 
-DATA_DIR="$SHARE_DIR/data"
-
 PYTHON_VENV="/usr/local/lib/jebot-venv"
 
-MAP_DATA="$DATA_DIR"/map
+MAP_DATA="$SHARE_DIR"/map
 
-STT_DATA="$DATA_DIR/stt"
+STT_DATA="$SHARE_DIR/stt"
 STT_MODELS="$STT_DATA/models"
 
 VOSK_MODEL_EN_URL="https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
@@ -31,8 +29,6 @@ case "$1" in
         # setup paths
         mkdir -p "$LIBEXEC_DIR" "$SHARE_DIR"
 
-        mkdir -p "$DATA_DIR"
-
         mkdir -p "$MAP_DATA"
 
         mkdir -p "$STT_DATA" "$STT_MODELS"
@@ -42,7 +38,7 @@ case "$1" in
         cp -f python/stt/sttd.py "$LIBEXEC_DIR"/
         chmod +x "$LIBEXEC_DIR"/*
 
-        cp -f data/* "$DATA_DIR"/
+        cp -f data/* "$SHARE_DIR"/
 
         # python venv
         [ ! -d "$PYTHON_VENV" ] && python3 -m venv "$PYTHON_VENV"
