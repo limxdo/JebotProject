@@ -12,13 +12,15 @@ import json
 # Base Paths
 RUNTIME_PATH      = "/run/jebot"
 STT_DATA_PATH     = "/usr/local/share/jebot/stt"
+VAR_PATH          = "/var/lib/jebot"
 
 # Fork Paths
-STTD_RUNTIME_PATH = RUNTIME_PATH + "/sttd"
-STTD_TEXT_FILE    = STTD_RUNTIME_PATH + "/text"
-STTD_LANG_FILE    = STTD_RUNTIME_PATH + "/lang"
-STT_MODELS_PATH   = STT_DATA_PATH + "/models"
-STTD_DATA_FILE    = STT_DATA_PATH + "/simple_data.json"
+STTD_RUNTIME_PATH   = RUNTIME_PATH + "/sttd"
+STTD_TEXT_FILE      = STTD_RUNTIME_PATH + "/text"
+STTD_LANG_FILE      = STTD_RUNTIME_PATH + "/lang"
+STTD_LAST_LANG_FILE = VAR_PATH + "/last_lang"
+STT_MODELS_PATH     = STT_DATA_PATH + "/models"
+STTD_DATA_FILE      = STT_DATA_PATH + "/simple_data.json"
 
 # Varibles
 MAGIC_WORD="listen"
@@ -48,7 +50,16 @@ try:
     custom_words = list(custom_words)
 
     exit_status = 0
-    Lang = "en"
+    Lang = None
+
+    if os.path.exists(STTD_LAST_LANG_FILE):
+        with open(STTD_LAST_LANG_FILE, 'r') as f:
+            Lang = f.read().strip()
+
+    if Lang != "en" or Lang != "ar":
+        Lang = "en"
+        with open(STTD_LANG_FILE, 'w') as f:
+            f.write(Lang + '\n')
 
     # paths
     if not os.path.exists(RUNTIME_PATH):
@@ -66,9 +77,6 @@ try:
 
     write_text("") # just create file
     os.chmod(STTD_TEXT_FILE, 0o644)
-
-    with open(STTD_LANG_FILE, "w") as lang_file:
-        lang_file.write(Lang + "\n")
 
     # check model
     if not os.path.exists(f"{STT_MODELS_PATH}/{Lang}"):
@@ -104,6 +112,20 @@ while running:
                 if key:
                     print(data[key], flush=True)
                     write_text(f"{data[key]}\n")
+
+                    if data[key] == "CHANGE_LANG":
+                        stt.del_model(Lang)
+                        if Lang == "ar":
+                            print(f"changed language from {Lang} to en", flush=True)
+                            Lang = "en"
+                        elif Lang == "en":
+                            print(f"changed language from {Lang} to ar", flush=True)
+                            Lang = "ar"
+
+                        stt.load_model(f"{STT_MODELS_PATH}/{Lang}", Lang)
+                        with open(STTD_LANG_FILE, 'w') as f:
+                            f.write(Lang + '\n')
+
                 else:
                     write_text("NOT_UNDERSTAND\n")
             else:
