@@ -18,7 +18,8 @@
 #define MOTORD_PIDFILE RUNTIME_PATH "/motord/pid"
 
 /* config (tmp) */
-#define MAX_DISTANCE_CM 25
+#define MAX_DISTANCE_CM 35
+#define WAIT_TIME_US 50000
 
 /* GPIOs */
 #define RIGHT_ECHO 27
@@ -227,8 +228,11 @@ int main(void) {
 
     /* vars to copy distance from threads */
     float right_distance, left_distance;
+    uint64_t wait_time;
+    bool waiting = false;
 
     while(running) {
+        uint64_t now = timer_now(TIMER_US);
 
         /* update motord pid */
         motord_pid_file = fopen(MOTORD_PIDFILE, "r");
@@ -252,12 +256,25 @@ int main(void) {
         if (motord_pid > 0) {
             if (right_distance || left_distance) {
                 if (right_distance <= MAX_DISTANCE_CM || left_distance <= MAX_DISTANCE_CM) {
-                    if (!blocked) {
-                        kill(motord_pid, SIGUSR1);
-                        blocked = true;
+                    if (!waiting) {
+                        /* start timer */
+                        wait_time = now;
+                        waiting = true;
+                    }
+                    else if ((now - wait_time) >= WAIT_TIME_US) {
+                        if (!blocked) {
+                            kill(motord_pid, SIGUSR1);
+                            blocked = true;
+                            if (right_distance < left_distance && right_distance != 0.0f)
+                                log_info("Obstacle Detected on front_right: %.2fcm\n", right_distance);
+                            else if (left_distance < right_distance && left_distance != 0.0f)
+                                log_info("Obstacle Detected on front_left: %.2fcm\n", left_distance);
+                        }
+                        waiting = false;
                     }
                 }
                 else {
+                    waiting = false;
                     if (blocked) {
                         kill(motord_pid, SIGUSR2);
                         blocked = false;
@@ -265,6 +282,7 @@ int main(void) {
                 }
             }
             else {
+                waiting = false;
                 if (blocked) {
                     kill(motord_pid, SIGUSR2);
                     blocked = false;
