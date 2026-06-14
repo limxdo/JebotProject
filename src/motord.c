@@ -1,8 +1,12 @@
 #include "../include/runtime.h"
 #include "../include/pwm_sysfs.h"
 #include "../include/logger.h"
+#include "../include/timer.h"
 
 #include <lgpio.h>
+#include <linux/i2c-dev.h>
+#include <math.h>
+#include <sys/ioctl.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -48,6 +52,26 @@ uint64_t left_enc_a_counter = 0;
 uint64_t right_enc_a_counter = 0;
 uint64_t target_pulses = 0;
 
+
+/* MPU6050 (Gyro) */
+#define I2C_BUS "/dev/i2c-1"
+
+#define MPU6050_ADDR 0x68
+
+#define MPU6050_PWR_MGMT_1  0x6B
+#define MPU6050_GYRO_CONFIG 0x1B
+#define MPU6050_GYRO_ZOUT_H 0x47
+#define MPU6050_GYRO_ZOUT_L 0x48
+#define GYRO_CONFIG 0x00 // -/+250 deg/s
+
+/* Empirically calibrated 61 bais for gyro_z based on 15*1000 measurements */
+#define GYRO_BAIS_Z 61
+
+#define MPU6050_WAKEUP 0x00
+#define MPU6050_SLEEP  0x40
+
+float yaw = 0.0f;
+long target_angle = 0;
 
 /* global vars */
 volatile bool running = true;   // main loop
@@ -108,7 +132,8 @@ typedef enum {
 /* struct to store command & args from MOTORD_CMD_FIFO */
 struct request_args {
     cmd_t cmd;
-    uint64_t distance_cm;
+    long distance_cm;
+    long angle;
     bool reply;
 };
 
@@ -118,74 +143,67 @@ void parse_cmd(struct request_args *request_args, char *request) {
     /* default values */
     request_args->cmd = CMD_UNKNOWN;
     request_args->distance_cm = 0;
+    request_args->angle = 0;
     request_args->reply = false;
     if (request == NULL) // uses to set default values in struct & exit 
         return;
 
     char *argptr; // strtok
-    char *endptr; // strtoull
+    char *endptr; // strtol
 
     /* first argument */
     argptr = strtok(request, " ");
 
     /* get type of request_args->cmd */
-    if (argptr == NULL) { // if empty
-        return;
+    if (!argptr) return; // if empty
+
+    /* place values with ENUMs */
+    if (strcmp(argptr, "MOVE_FORWARD") == 0) {
+        request_args->cmd = CMD_MOVE_FORWARD;
+    }
+    else if (strcmp(argptr, "MOVE_BACKWARD") == 0) {
+        request_args->cmd = CMD_MOVE_BACKWARD;
+    }
+    else if (strcmp(argptr, "TURN_RIGHT") == 0) {
+        request_args->cmd = CMD_TURN_RIGHT;
+    }
+    else if (strcmp(argptr, "TURN_LEFT") == 0) {
+        request_args->cmd = CMD_TURN_LEFT;
+    }
+    else if (strcmp(argptr, "STOP") == 0) {
+        request_args->cmd = CMD_STOP;
     }
     else {
-        /* place values with ENUMs */
-        if (strcmp(argptr, "MOVE_FORWARD") == 0) {
-            request_args->cmd = CMD_MOVE_FORWARD;
-        }
-        else if (strcmp(argptr, "MOVE_BACKWARD") == 0) {
-            request_args->cmd = CMD_MOVE_BACKWARD;
-        }
-        else if (strcmp(argptr, "TURN_RIGHT") == 0) {
-            request_args->cmd = CMD_TURN_RIGHT;
-        }
-        else if (strcmp(argptr, "TURN_LEFT") == 0) {
-            request_args->cmd = CMD_TURN_LEFT;
-        }
-        else if (strcmp(argptr, "STOP") == 0) {
-            request_args->cmd = CMD_STOP;
-        }
-        else {
-            request_args->cmd = CMD_UNKNOWN;
-            return;
-        }
+        request_args->cmd = CMD_UNKNOWN;
+        return;
     }
 
     /* second argument */
     argptr = strtok(NULL, " ");
     
-    if (argptr == NULL) {
-        return;
-    }
-    else {
-        /* if second arg is reply */
-        if (strcmp(argptr, "--reply") == 0) {
-            request_args->reply = true;
-            return;
-        }
-        else {
-            /* if seconds */
-            request_args->distance_cm = strtoull(argptr, &endptr, 10);
-            if (endptr == argptr || *endptr == '-') {  // not a number or negative number
-                request_args->distance_cm = 0;
-            }
-        }
+    if (!argptr) return;
+    switch (request_args->cmd) {
+    case CMD_MOVE_FORWARD:
+    case CMD_MOVE_BACKWARD:
+        request_args->distance_cm = strtol(argptr, &endptr, 10);
+        if (endptr == argptr || *endptr == '-') // not a number or negative number
+            request_args->distance_cm = 0;
+        break;
+
+    case CMD_TURN_RIGHT:
+    case CMD_TURN_LEFT:
+        request_args->angle = strtol(argptr, &endptr, 10);
+        if (endptr == argptr || *endptr == '-') // not a number or negative number
+            request_args->angle = 0;
+        break;
+    default:
+        break;
     }
 
-    /* third argument */
     argptr = strtok(NULL, " ");
-
-    if (argptr == NULL) {
-        return;
-    }
-    else {
-        if (strcmp(argptr, "--reply") == 0) {
-            request_args->reply = true;
-        }
+    if (!argptr) return;
+    else if (strcmp(argptr, "--reply") == 0) {
+        request_args->reply = true;
     }
 }
 
@@ -205,11 +223,11 @@ int move(cmd_t cmd, ...) {
     va_start(args, cmd);
 
     /* reset values */
-    target_pulses = 0;
     right_enc_a_counter = 0;
     left_enc_a_counter = 0;
-    /* Temporary approximation: 2 cm * PULSES_PER_CM = ~90 angle turn (will be replaced with gyro) */
-    uint64_t angle_90 = 2 * PULSES_PER_CM;
+    target_pulses = 0;
+    target_angle = 0;
+    yaw = 0.0f;
 
     int status = 0;
 
@@ -217,7 +235,7 @@ int move(cmd_t cmd, ...) {
     switch (cmd) {
     case CMD_MOVE_FORWARD:
         /* convert distance_cm to encoder pulses */
-        target_pulses = va_arg(args, uint64_t) * PULSES_PER_CM;
+        target_pulses = va_arg(args, long) * PULSES_PER_CM;
 
         /* check if pwm failed */
         if (
@@ -232,7 +250,7 @@ int move(cmd_t cmd, ...) {
         break;
 
     case CMD_MOVE_BACKWARD:
-        target_pulses = va_arg(args, uint64_t) * PULSES_PER_CM;
+        target_pulses = va_arg(args, long) * PULSES_PER_CM;
 
         if (
             ((status = pwm_enable(&RIGHT_FORWARD, false)) < 0) ||
@@ -246,7 +264,7 @@ int move(cmd_t cmd, ...) {
         break;
 
     case CMD_TURN_RIGHT:
-        target_pulses = angle_90 * PULSES_PER_CM;
+            target_angle = va_arg(args, long);
         if (
             ((status = pwm_enable(&RIGHT_FORWARD, false)) < 0) ||
             ((status = pwm_enable(&RIGHT_BACKWARD, true)) < 0) ||
@@ -259,7 +277,7 @@ int move(cmd_t cmd, ...) {
         break;
 
     case CMD_TURN_LEFT:
-        target_pulses = angle_90 * PULSES_PER_CM;
+            target_angle = va_arg(args, long);
         if (
             ((status = pwm_enable(&RIGHT_FORWARD, true)) < 0) ||
             ((status = pwm_enable(&RIGHT_BACKWARD, false)) < 0) ||
@@ -278,9 +296,10 @@ int move(cmd_t cmd, ...) {
         status = pwm_enable(&LEFT_FORWARD, false);
         status = pwm_enable(&LEFT_BACKWARD, false);
 
-        target_pulses = 0;
         right_enc_a_counter = 0;
         left_enc_a_counter = 0;
+        target_pulses = 0;
+        target_angle = 0;
         break;
     
     default:
@@ -292,7 +311,7 @@ int move(cmd_t cmd, ...) {
 }
 
 /* reply function */
-void reply(reply_t reply, uint64_t moved) {
+void reply(reply_t reply, long moved) {
 
     int total_wait_us = 20000;
 
@@ -308,13 +327,13 @@ void reply(reply_t reply, uint64_t moved) {
         break;
     case REPLY_SKIPPED:
         if (moved)
-            snprintf(msg, sizeof(msg), "SKIPPED %"PRIu64"\n", moved);
+            snprintf(msg, sizeof(msg), "SKIPPED %ld\n", moved);
         else
             strcpy(msg, "SKIPPED\n");
         break;
     case REPLY_BLOCKED:
         if (moved)
-            snprintf(msg, sizeof(msg), "BLOCKED %"PRIu64"\n", moved);
+            snprintf(msg, sizeof(msg), "BLOCKED %ld\n", moved);
         else
             strcpy(msg, "BLOCKED\n");
         break;
@@ -427,16 +446,60 @@ int main(void) {
         goto exit;
     }
 
+    /* Gyro */
+    int mpu6050_fd = open(I2C_BUS, O_RDWR);
+    if (mpu6050_fd < 0) {
+        log_fatal("open %s: %s\n", I2C_BUS, strerror(errno));
+        exit_status = 1;
+        goto exit;
+    }
+
+    if (ioctl(mpu6050_fd, I2C_SLAVE, MPU6050_ADDR) < 0) {
+        log_fatal("ioctl 0x%x: %s\n", MPU6050_ADDR, strerror(errno));
+        exit_status = 1;
+        goto exit;
+    }
+
+
     /* Starting the daemon */
     char request[256];
     ssize_t rn;
-    uint64_t moved;
+    long moved;
 
     int move_ret = -1;
     struct request_args request_args;
     parse_cmd(&request_args, NULL);
 
+    uint8_t wdata[2], rdata[2];
+
+    /* wakeup the MPU6050 */
+    wdata[0] = MPU6050_PWR_MGMT_1;
+    wdata[1] = MPU6050_WAKEUP;
+    write(mpu6050_fd, wdata, 2);
+
+    wdata[0] = MPU6050_GYRO_CONFIG;
+    wdata[1] = GYRO_CONFIG;
+    write(mpu6050_fd, wdata, 2);
+
+    /* gyro_z */
+    float dt = 0.0f;
+    float dps_z;
+    uint8_t reg = MPU6050_GYRO_ZOUT_H;
+    int16_t gyro_z_raw;
+    uint64_t last_time = timer_now(TIMER_MS);
+
     while (running) {
+        uint64_t now = timer_now(TIMER_MS);
+        dt = (now - last_time) / 1000.0f;
+        last_time = now;
+
+        /* get gyro_z */
+        write(mpu6050_fd, &reg, 1);
+        read(mpu6050_fd, rdata, 2);
+        gyro_z_raw = (rdata[0] << 8) | rdata[1];
+        dps_z = (gyro_z_raw - GYRO_BAIS_Z) / 131.0f;
+        yaw += fabsf(dps_z * dt);
+
         /* if exists command, check if command finished */
         // if (target_pulses && ((right_enc_a_counter + left_enc_a_counter) / 2 >= target_pulses)) {
         if (target_pulses && (right_enc_a_counter >= target_pulses && left_enc_a_counter >= target_pulses)) {
@@ -450,11 +513,18 @@ int main(void) {
         }
         else if (request_args.cmd == CMD_MOVE_FORWARD && blocked) { // block the command if already executing
             moved = ((right_enc_a_counter + left_enc_a_counter) / 2 / PULSES_PER_CM);
-            log_info("EXECUTION: BLOCKED (%"PRIu64" cm moved)\n", moved);
             move(CMD_STOP);
+            log_info("EXECUTION: BLOCKED (%ld cm moved)\n", moved);
             if (request_args.reply)
                 reply(REPLY_BLOCKED, moved);
             /* reset values to avoid print loop */
+            parse_cmd(&request_args, NULL);
+        }
+        else if (target_angle && (yaw >= target_angle)) {
+            move(CMD_STOP);
+            log_info("EXECUTION: SUCCESS\n");
+            if (request_args.reply)
+                reply(REPLY_SUCCESS, 0);
             parse_cmd(&request_args, NULL);
         }
 
@@ -463,19 +533,27 @@ int main(void) {
             if (request[rn-1] == '\n') request[rn-1] = '\0';
             else request[rn] = '\0';
 
-            if (target_pulses) {
-                if (request_args.cmd == CMD_MOVE_FORWARD || request_args.cmd == CMD_MOVE_BACKWARD) {
+            if (target_pulses || target_angle) {
+                if (target_pulses) {
                     moved = ((right_enc_a_counter + left_enc_a_counter) / 2 / PULSES_PER_CM);
-                    log_info("EXECUTION: SKIPPED (%"PRIu64" cm moved)\n", moved);
+                    log_info("EXECUTION: SKIPPED (%ld cm moved)\n", moved);
                     if (request_args.reply)
                         reply(REPLY_SKIPPED, moved);
+                    move(CMD_STOP);
+                }
+                else if (target_angle){
+                    moved = yaw;
+                    log_info("EXECUTION: SKIPPED (%ld angle turned)\n", moved);
+                    if (request_args.reply)
+                        reply(REPLY_SKIPPED, moved);
+                    move(CMD_STOP);
                 }
                 else {
                     log_info("EXECUTION: SKIPPED\n");
                     if (request_args.reply)
                         reply(REPLY_SKIPPED, 0);
+                    move(CMD_STOP);
                 }
-                move(CMD_STOP);
             }
 
             log_print("\n");
@@ -489,12 +567,11 @@ int main(void) {
                 /* reset values */
                 parse_cmd(&request_args, NULL);
             }
-            else if ((request_args.cmd == CMD_MOVE_FORWARD || request_args.cmd == CMD_MOVE_BACKWARD) && !request_args.distance_cm) {
+            else if (
+                ((request_args.cmd == CMD_MOVE_FORWARD || request_args.cmd == CMD_MOVE_BACKWARD) && !request_args.distance_cm) ||
+                ((request_args.cmd == CMD_TURN_RIGHT || request_args.cmd == CMD_TURN_LEFT) && !request_args.angle)
+            ) {
                 log_err("MISSING ARGS\n");
-                parse_cmd(&request_args, NULL);
-            }
-            else if ((request_args.cmd == CMD_TURN_RIGHT || request_args.cmd == CMD_TURN_LEFT) && request_args.distance_cm) {
-                log_err("INVALID OPTIONS\n");
                 parse_cmd(&request_args, NULL);
             }
             else if (request_args.cmd == CMD_MOVE_FORWARD && blocked) { // block command before executing
@@ -505,7 +582,12 @@ int main(void) {
                 parse_cmd(&request_args, NULL);
             }
             else {
-                move_ret = move(request_args.cmd, request_args.distance_cm);
+                if (request_args.cmd == CMD_MOVE_FORWARD || request_args.cmd == CMD_MOVE_BACKWARD)
+                    move_ret = move(request_args.cmd, request_args.distance_cm);
+                else if (request_args.cmd == CMD_TURN_RIGHT || request_args.cmd == CMD_TURN_LEFT)
+                    move_ret = move(request_args.cmd, request_args.angle);
+                else
+                    move_ret = move(request_args.cmd, -1);
 
                 if (move_ret < 0) {
                     log_err("EXECUTION: FAILED (%s)\n", errno ? strerror(errno) : lguErrorText(move_ret));
@@ -537,6 +619,12 @@ exit:
     pwm_close(&pwm2);
     pwm_close(&pwm3);
 
+    /* sleep the MPU6050 */
+    wdata[0] = MPU6050_PWR_MGMT_1;
+    wdata[1] = MPU6050_SLEEP;
+    write(mpu6050_fd, wdata, 2);
+
+    close(mpu6050_fd);
     close(cmd_fifo_fd);
 
     runtime_exit();
