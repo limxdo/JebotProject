@@ -3,7 +3,7 @@
 import sys
 sys.dont_write_bytecode = True
 
-import jebot.stt as stt
+import stt
 import os
 import signal
 from time import sleep
@@ -19,6 +19,9 @@ STTD_TEXT_FILE    = STTD_RUNTIME_PATH + "/text"
 STTD_LANG_FILE    = STTD_RUNTIME_PATH + "/lang"
 STT_MODELS_PATH   = STT_DATA_PATH + "/models"
 STTD_DATA_FILE    = STT_DATA_PATH + "/simple_data.json"
+
+# Varibles
+MAGIC_WORD="listen"
 
 try:
     running = True
@@ -85,19 +88,26 @@ except Exception as e:
 
 while running:
     try:
-        sleep(0.5)
-        text = stt.listen("en", 10, costom_words=custom_words)
-        if isinstance(text, str):
-            print(f"new text detected: {text}", flush=True)
+        while True:
+            RandomText = stt.listen(Lang, 10, costom_words=[MAGIC_WORD])
+            if isinstance(RandomText, str):
+                break
 
-            key = stt.simple(text, data)
-            if key:
-                print(data[key], flush=True)
-                write_text(f"{data[key]}\n")
+        if MAGIC_WORD in RandomText:
+            print("listening", flush=True)
+            sleep(0.5)
+            text = stt.listen(Lang, 10, costom_words=custom_words)
+            if isinstance(text, str):
+                print(f"new text detected: {text}", flush=True)
+
+                key = stt.simple(text, data)
+                if key:
+                    print(data[key], flush=True)
+                    write_text(f"{data[key]}\n")
+                else:
+                    write_text("NOT_UNDERSTAND\n")
             else:
-                write_text("NOT_UNDERSTAND\n")
-        else:
-            write_text("");
+                write_text("");
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr, flush=True)
 

@@ -71,7 +71,7 @@ def listen(model_name: str, timeout=0, sample_rate_in=16000, costom_words=None, 
 
 # function to get a strongest key in 'data'
 
-def char_by_char_simple(value: str, value2 : str): # returns ratio of similarity
+def cal(value: str, value2 : str): # returns ratio of similarity
     index_mem = 0
     score = 0
     if len(value)<=len(value2):
@@ -134,13 +134,13 @@ def simple(value: str, data: dict, miniweight=75.0) :
         higher_char = 0
         weight = 0
         for highers_in in highers_list:
-            if weight < char_by_char_simple(highers_in, clean_value):
-                weight = char_by_char_simple(highers_in, clean_value)
+            if weight < cal(highers_in, clean_value):
+                weight = cal(highers_in, clean_value)
                 
         print(weight)
         if weight>=miniweight:
             for highers_in in highers_list:
-                if weight == char_by_char_simple(highers_in, clean_value):
+                if weight == cal(highers_in, clean_value):
                     print(weight)
                     return highers_in
 # example to use
