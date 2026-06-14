@@ -3,7 +3,7 @@
 import sys
 sys.dont_write_bytecode = True
 
-import stt
+import jebot.stt as stt
 import os
 import signal
 from time import sleep
