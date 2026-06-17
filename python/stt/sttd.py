@@ -22,11 +22,9 @@ STTD_LAST_LANG_FILE = VAR_PATH + "/last_lang"
 STT_MODELS_PATH     = STT_DATA_PATH + "/models"
 STTD_DATA_FILE      = STT_DATA_PATH + "/simple_data.json"
 
-# Varibles
-MAGIC_WORD="listen"
-
 try:
     running = True
+    custom_words_en = set()
 
     # signal handler
     def handler(signum, frame):
@@ -41,25 +39,8 @@ try:
     with open(STTD_DATA_FILE, "r") as f:
         data = json.load(f)
 
-    custom_words = set()
-
-    for keys in data.keys():
-        for words in keys.split():
-            custom_words.add(words)
-
-    custom_words = list(custom_words)
-
     exit_status = 0
     Lang = None
-
-    if os.path.exists(STTD_LAST_LANG_FILE):
-        with open(STTD_LAST_LANG_FILE, 'r') as f:
-            Lang = f.read().strip()
-
-    if Lang != "en" or Lang != "ar":
-        Lang = "en"
-        with open(STTD_LANG_FILE, 'w') as f:
-            f.write(Lang + '\n')
 
     # paths
     if not os.path.exists(RUNTIME_PATH):
@@ -75,6 +56,25 @@ try:
         with open(STTD_TEXT_FILE, "w") as Text_file:
             Text_file.write(text)
 
+    if os.path.exists(STTD_LAST_LANG_FILE):
+        with open(STTD_LAST_LANG_FILE, 'r') as f:
+            Lang = f.read().strip()
+
+    if Lang != "en" and Lang != "ar":
+        Lang = "en"
+        with open(STTD_LAST_LANG_FILE, 'w') as f:
+            f.write(Lang + '\n')
+
+    with open(STTD_LANG_FILE, 'w') as f:
+        f.write(Lang + '\n')
+
+    for keys in data["en"]:
+        for words in keys.split():
+            custom_words_en.add(words)
+
+    custom_words_en = list(custom_words_en)
+
+
     write_text("") # just create file
     os.chmod(STTD_TEXT_FILE, 0o644)
 
@@ -83,12 +83,8 @@ try:
         raise FileNotFoundError(f"model {Lang} not found")
 
     # load model
-    null = os.open("/dev/null", os.O_WRONLY)
-    fd_back = os.dup(2)
-    os.dup2(null, 2)
     stt.load_model(f"{STT_MODELS_PATH}/{Lang}", Lang)
-    os.dup2(fd_back, 2)
-    os.close(null)
+
 except Exception as e:
     print(f"FATAL ERROR: {e}", file=sys.stderr, flush=True)
     sys.exit(1)
@@ -96,38 +92,53 @@ except Exception as e:
 
 while running:
     try:
-        while True:
-            RandomText = stt.listen(Lang, 10, costom_words=[MAGIC_WORD])
-            if isinstance(RandomText, str):
-                break
+        sleep(0.3)
 
-        if MAGIC_WORD in RandomText:
-            print("listening", flush=True)
-            sleep(0.5)
-            text = stt.listen(Lang, 10, costom_words=custom_words)
-            if isinstance(text, str):
-                print(f"new text detected: {text}", flush=True)
+        RandomText = None
+        text = None
 
-                key = stt.simple(text, data)
-                if key:
-                    print(data[key], flush=True)
-                    write_text(f"{data[key]}\n")
+        print(f"new listen with lang '{Lang}'", flush=True)
+        if Lang == "en":
+            RandomText = stt.listen(Lang, 10, costom_words=custom_words_en)
+        elif Lang == "ar":
+            RandomText = stt.listen(Lang, 10)
 
-                    if data[key] == "CHANGE_LANG":
-                        stt.del_model(Lang)
-                        if Lang == "ar":
-                            print(f"changed language from {Lang} to en", flush=True)
-                            Lang = "en"
-                        elif Lang == "en":
-                            print(f"changed language from {Lang} to ar", flush=True)
-                            Lang = "ar"
+        if isinstance(RandomText, str):
+            print(f"RandomText: {RandomText}", flush=True)
+            key = stt.simple(RandomText, data[Lang])
+            if key and data[Lang][key] == "MAGIC_WORD":
+                print("listening", flush=True)
+                if Lang == "en":
+                    text = stt.listen(Lang, 10, costom_words=custom_words_en)
+                elif Lang == "ar":
+                    text = stt.listen(Lang, 10)
+                if isinstance(text, str):
+                    print(f"new text detected: {text}", flush=True)
 
-                        stt.load_model(f"{STT_MODELS_PATH}/{Lang}", Lang)
-                        with open(STTD_LANG_FILE, 'w') as f:
-                            f.write(Lang + '\n')
+                    key = stt.simple(text, data[Lang])
+                    if key and key in data[Lang]:
+                        print(data[Lang][key], flush=True)
+                        write_text(f"{data[Lang][key]}\n")
 
+                        if data[Lang][key] == "CHANGE_LANG":
+                            stt.del_model(Lang)
+                            if Lang == "ar":
+                                print(f"changed language from {Lang} to en", flush=True)
+                                Lang = "en"
+                            elif Lang == "en":
+                                print(f"changed language from {Lang} to ar", flush=True)
+                                Lang = "ar"
+
+                            stt.load_model(f"{STT_MODELS_PATH}/{Lang}", Lang)
+                            with open(STTD_LANG_FILE, 'w') as f:
+                                f.write(Lang + '\n')
+                            with open(STTD_LAST_LANG_FILE, 'w') as f:
+                                f.write(Lang + '\n')
+
+                    else:
+                        write_text("NOT_UNDERSTAND\n")
                 else:
-                    write_text("NOT_UNDERSTAND\n")
+                    write_text("");
             else:
                 write_text("");
     except Exception as e:

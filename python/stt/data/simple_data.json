@@ -1,15 +1,60 @@
 {
-    "go to manager room": "GOTO_MANAGER_ROOM",
-    "where is the manager room": "GOTO_MANAGER_ROOM",
-    "go to first class room": "GOTO_FIRST_CLASS",
-    "go to second class room": "GOTO_SECOND_CLASS",
-    "go to third class room": "GOTO_THIRD_CLASS",
-    "hello hi are you": "HELLO_HOW_ARE_YOU",
-    "can i join this school": "JION_SCHOOL",
-    "who is the manager": "WHO_THE_MANAGER",
-    "what is this school": "WHAT_THE_SCHOOL",
-    "bye see you": "BYE_SEE_YOU",
-    "what students student are is benifit": "STUDENTS_BENFIT",
-    "what the technology program programs": "TECH_PROGRAMS",
-    "change your language": "CHANGE_LANG"
+    "en": {
+        "listen": "MAGIC_WORD",
+
+        "change your language": "CHANGE_LANG",
+
+        "go to manager room": "GOTO_MANAGER_ROOM",
+
+        "go to first class room": "GOTO_FIRST_CLASS",
+
+        "go to second class room": "GOTO_SECOND_CLASS",
+
+        "go to third class room": "GOTO_THIRD_CLASS",
+
+        "hello hi are you": "HELLO_HOW_ARE_YOU",
+
+        "can i join this school": "JION_SCHOOL",
+
+        "who is the manager": "WHO_THE_MANAGER",
+
+        "what is this school": "WHAT_THE_SCHOOL",
+
+        "bye see you": "BYE_SEE_YOU",
+
+        "what students student are is benifit": "STUDENTS_BENFIT",
+
+        "what the technology program programs": "TECH_PROGRAMS"
+    },
+    "ar": {
+        "استمع": "MAGIC_WORD",
+        "اسمع": "MAGIC_WORD",
+        "استمر": "MAGIC_WORD",
+
+        "غير لغتك": "CHANGE_LANG",
+
+        "اين غرفة المدير": "GOTO_MANAGER_ROOM",
+        "اين غرفة مدير": "GOTO_MANAGER_ROOM",
+
+        "اين الفصل الاول": "GOTO_FIRST_CLASS",
+
+        "اين الفصل الثاني": "GOTO_SECOND_CLASS",
+
+        "اين الفصل الثالث": "GOTO_THIRD_CLASS",
+
+        "مرحبا اهلا وسهلا": "HELLO_HOW_ARE_YOU",
+
+        "هل يمكنني الالتحاق بالمدرسة": "JION_SCHOOL",
+
+        "من هوا المدير": "WHO_THE_MANAGER",
+
+        "ما هذه المدرسة": "WHAT_THE_SCHOOL",
+
+        "وداعا الى اللقاء": "BYE_SEE_YOU",
+
+        "ما يستفيد منه الطلاب": "STUDENTS_BENFIT",
+
+        "ما هي البرامج التكنولوجية": "TECH_PROGRAMS"
+    }
+
 }
