@@ -51,6 +51,10 @@ try:
         os.mkdir(STTD_RUNTIME_PATH, 0o755)
     os.chmod(STTD_RUNTIME_PATH, 0o755)
 
+    if not os.path.exists(VAR_PATH):
+        os.mkdir(VAR_PATH, 0o755)
+    os.chmod(VAR_PATH, 0o755)
+
     # create STTD_TEXT_FILE and write NOTHING
     def write_text(text):
         with open(STTD_TEXT_FILE, "w") as Text_file:
