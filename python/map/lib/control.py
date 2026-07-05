@@ -11,6 +11,22 @@
 # 11111111111111111111,
 # 11111111111111111111,
 
+"""Copyright (C) <2026>  <Abdulahk1>
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/"""
+
+
 import heapq
 import numpy as np 
 import os
@@ -21,11 +37,15 @@ import sys
 """this func convert Path's (func) output to command for robot , 
 it takes Path output as (lst_point) and vector (it is where does robot look) and it return list of commands to robot """
 def command(lst_points: list,vector : str) -> tuple:
+    
+    if not lst_points: # if lst_points empty , the func will return None 
+        return None
+
     lst_command = [] # lsit has all commands
     first_point = lst_points[0] # save first point in lst_points
     lst_points = lst_points[1:] # remove first point from lst_points
     lst_current_points = []
-    keys_convertors = {1:"MOVE_FORWARD 40",2:"TURN_LEFT",3:"TURN_RIGHT"} # dict for covert string to num , to use less RAM
+    keys_convertors = {1:"MOVE_FORWARD",2:"TURN_LEFT",3:"TURN_RIGHT"} # dict for covert string to num , to use less RAM
 
     for point in lst_points:
         # list near point from our point var
@@ -43,14 +63,12 @@ def command(lst_points: list,vector : str) -> tuple:
         if (vector == "down" and (point == lst_near_points[0])) or (vector == "right" and (point == lst_near_points[1])) or (vector == "up" and (point == lst_near_points[2])) or (vector == "left" and (point == lst_near_points[3])): # move 
             
             lst_command.append(1) # append the command
-            lst_current_points = lst_current_points + [point] # add the point which will robot be on it
             first_point = point # change now point to new point
         
         elif (vector == "down" and (point == lst_near_points[3])) or (vector == "right" and (point == lst_near_points[0])) or (vector == "up" and (point == lst_near_points[1])) or (vector == "left" and (point == lst_near_points[2])): # turn right 
             
             lst_command = lst_command + [3,1] # append the commands
             # robot dont change it place when turn right , that is why i append now point with the next point
-            lst_current_points = lst_current_points + [first_point,point] 
             first_point = point 
             vector = dct_vectors[point] 
         
@@ -58,7 +76,6 @@ def command(lst_points: list,vector : str) -> tuple:
             
             lst_command = lst_command + [2,1] # append the commands
             # robot dont change it place when turn right , that is why i append now point with the next point
-            lst_current_points = lst_current_points + [first_point,point] 
             first_point = point 
             vector = dct_vectors[point] 
         
@@ -66,11 +83,10 @@ def command(lst_points: list,vector : str) -> tuple:
             
             lst_command = lst_command + [3,3,2] # append the commands
             # robot dont change it place when turn right , that is why i append now point with the next point
-            lst_current_points = lst_current_points + [first_point,first_point,point] 
             first_point = point 
             vector = dct_vectors[point]
     
-    return np.array(lst_command,dtype=np.int8),np.array(lst_current_points,dtype=np.int16),keys_convertors
+    return np.array(lst_command,dtype=np.int8),keys_convertors
 
 """this func responsible for find the shortest way from the begining point to the end point
 it takes Map and begining point and end point and return a list points it is like [(1,2),(3,4)]"""
@@ -128,23 +144,7 @@ def path(Map : np.array,start_point:tuple,end_point:tuple) -> list:
                 heapq.heappush(lst_all_points,(distance,point)) # add vars to the tree
 
 
-"""func will send to pipe file ((FIFO) on unix & (based-like)) the command to motord.c """
-def send(pipe_send : str,pipe_replay : str,command : int) -> str:
-    # you will have better if you put abslote path
-    if os.path.exists(pipe_send) and os.path.exists(pipe_replay): # che  
-        keys_convertors = {1:"MOVE_FORWARD 40 --reply\n",2:"TURN_LEFT --reply\n",3:"TURN_RIGHT --reply\n"} # var contain all command ans their num
-        with open(pipe_send,"w") as pipe: # open send pipe file
-            pipe.write(keys_convertors[command]) # write the command on the pipe
-        
-        with open(pipe_replay,"r") as pipe: # open reply pipe file
-            replay = pipe.read() # read the reply
-            replay.strip() # remove \n from the reply
-            return replay
-    else:
-        raise FileNotFoundError("pipes are not exitst.") 
-
-
-# code usage
+# code usage (just to try the code)
 ################################ 
 # strr = """11111111111111111111
 # 11000000000000000101
@@ -161,7 +161,9 @@ def send(pipe_send : str,pipe_replay : str,command : int) -> str:
 ############################
 # Map = np.zeros((3,3))
 # way = path(Map,(0,0),(2,2))
-# commands,lst_current_points,key = command(way,"down")
+###############################
+# print(way)
+# commands,keys = command(way,"down")
 # print(commands)
 
 # Map shape
