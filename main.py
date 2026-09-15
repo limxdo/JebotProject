@@ -46,7 +46,7 @@ STTD_LANG_FILE  = "/run/jebot/sttd/lang"
 
 # map
 MAP_SHARE_PATH = SHARE_PATH + "/map"
-MAP_SHARE_FILE = MAP_SHARE_PATH + "map.json"
+MAP_SHARE_FILE = MAP_SHARE_PATH + "/map.json"
 MAP_CACHE_FILE = CACHE_PATH + "/cash_points.json"
 
 # setup, any exceptions based on 'Exception' here is fatal
@@ -195,7 +195,7 @@ def current_point(last_point:list,vector:str,last_command:str) -> tuple:
 
 
 try: # this try statment it is for cache file (read once & write once)
-     # The order of the vars here is important ⚠️ 
+     # The order of the vars here is important !!! 
      goal_point = None # it vars to decide , if it will take his goal from cache or from user commands
      now_point = None
      vector = None

@@ -81,7 +81,7 @@ def command(lst_points: list,vector : str) -> tuple:
         
         elif (vector == "down" and (point == lst_near_points[2])) or (vector == "right" and (point == lst_near_points[3])) or (vector == "up" and (point == lst_near_points[0])) or (vector == "left" and (point == lst_near_points[1])): # go back
             
-            lst_command = lst_command + [3,3,2] # append the commands
+            lst_command = lst_command + [3,3,1] # append the commands
             # robot dont change it place when turn right , that is why i append now point with the next point
             first_point = point 
             vector = dct_vectors[point]
