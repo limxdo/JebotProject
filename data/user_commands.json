@@ -1,6 +1,54 @@
 {
-    "SIMPLED_COMMAND_FROM_STTD": {
-        "sound": "sound_file_name, or null",
-        "point": "point name in map.json or [x, y] direct, or null"
+    "NOT_UNDERSTAND": {
+        "sound": "cant_hear.wav",
+        "point": null
+    },
+    "CHANGE_LANG": {
+        "sound": "change_lang_done.wav",
+        "point": null
+    },
+    "GOTO_MANAGER_ROOM": {
+        "sound": "follow_me.wav",
+        "point": null
+    },
+    "GOTO_FIRST_CLASS": {
+        "sound": "follow_me.wav",
+        "point": null
+    },
+    "GOTO_SECOND_CLASS": {
+        "sound": "follow_me.wav",
+        "point": null
+    },
+    "GOTO_THIRD_CLASS": {
+        "sound": "follow_me.wav",
+        "point": null
+    },
+    "HELLO_HOW_ARE_YOU": {
+        "sound": "hallo_in_school.wav",
+        "point": null
+    },
+    "JION_SCHOOL": {
+        "sound": "Can_i_join_this_school.wav",
+        "point": null
+    },
+    "WHO_THE_MANAGER": {
+        "sound": "who_is_the_manager.wav",
+        "point": null
+    },
+    "WHAT_THE_SCHOOL": {
+        "sound": "MoE_twauiq_collab.wav",
+        "point": null
+    },
+    "BYE_SEE_YOU": {
+        "sound": "bye_bye.wav",
+        "point": null
+    },
+    "STUDENTS_BENFIT": {
+        "sound": "students_benfit.wav",
+        "point": null
+    },
+    "TECH_PROGRAMS": {
+        "sound": "technology_prgram.wav",
+        "point": null
     }
 }
