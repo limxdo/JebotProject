@@ -20,7 +20,7 @@ VOSK_MODEL_AR_URL="https://alphacephei.com/vosk/models/vosk-model-ar-mgb2-0.4.zi
 VOSK_MODEL_AR_PATH="$STT_MODELS/ar"
 
 SOUNDS_URL="https://github.com/limxdo/JebotProject/releases/download/voicelines-beta-v1.2/sounds.zip"
-SOUNDS_PATH="/usr/local/share/jebot/sounds"
+SOUNDS_PATH="$SHARE_DIR/sounds"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "this script must be run as root." >&2
