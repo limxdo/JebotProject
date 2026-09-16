@@ -19,6 +19,9 @@ VOSK_MODEL_EN_PATH="$STT_MODELS/en"
 VOSK_MODEL_AR_URL="https://alphacephei.com/vosk/models/vosk-model-ar-mgb2-0.4.zip"
 VOSK_MODEL_AR_PATH="$STT_MODELS/ar"
 
+SOUNDS_URL="https://github.com/limxdo/JebotProject/releases/download/voicelines-beta-v1.2/sounds.zip"
+SOUNDS_PATH="/usr/local/share/jebot/sounds"
+
 if [ "$(id -u)" -ne 0 ]; then
     echo "this script must be run as root." >&2
     exit 1
@@ -71,6 +74,15 @@ case "$1" in
             unzip /tmp/vosk-ar.zip -d /tmp/vosk-extract
             mv /tmp/vosk-extract/*/* "$VOSK_MODEL_AR_PATH"/
             rm -rf /tmp/{vosk-ar.zip,vosk-extract}
+        fi
+
+        # download sounds
+        if [ ! -d "$SOUNDS_PATH" ]; then
+            mkdir -p "$SOUNDS_PATH"
+            wget -O /tmp/sounds.zip "$SOUNDS_URL"
+            unzip /tmp/sounds.zip -d "/tmp/sounds"
+            mv /tmp/sounds/*/* "$SOUNDS_PATH"
+            rm -rf /tmp/{sounds.zip,sounds}
         fi
 
         # systemd
