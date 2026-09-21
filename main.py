@@ -49,6 +49,11 @@ MAP_SHARE_PATH = SHARE_PATH + "/map"
 MAP_SHARE_FILE = MAP_SHARE_PATH + "/map.json"
 MAP_CACHE_FILE = CACHE_PATH + "/cash_points.json"
 
+# constants for motord commands, for less RAM used                        mnnnnnnnnnnnnnnnnnnnn
+MOVE_FORWARD = 1
+TURN_LEFT = 2
+TURN_RIGHT = 3
+
 # setup, any exceptions based on 'Exception' here is fatal
 try:
     running = True # main loop condition
@@ -76,7 +81,7 @@ try:
     
     def save_point(current_point:list,goal_point:list,vector:str) -> None: # write current point in MAP_CACHE_FILE
         dct_cache = {
-            "cuurrent_point":current_point,
+            "current_point":current_point,
             "goal_point":goal_point,
             "vector":vector
         }
@@ -190,7 +195,6 @@ def current_point(last_point:list,vector:str,last_command:str) -> tuple:
         case _:
             return "error" # if the input is unvalid
 
-
 # main loop, any exceptions based on 'Exception' here just be print as error log
 
 
@@ -203,7 +207,7 @@ try: # this try statment it is for cache file (read once & write once)
 
       #check if tjere is chache file
      if dct_cache:
-            vactor = dct_cache["vector"]
+            vector = dct_cache["vector"]
             now_point = dct_cache["current_point"]
             goal_point = dct_cache["goal_point"] # if robot walked in a way already this will tell us
 
@@ -223,12 +227,13 @@ while running:
             now_point = dct_map["points"]["home"] # default value
         
         if not vector:
-            vector = "right"  # default value
+            vector = "up"  # default value
 
         if goal_point:
-            while (now_point != goal_point) and running: 
-                way,keys = control.command(lst_points=control.path(Map=np.array(lst_map),start_point=now_point,end_point=goal_point),vector=vector)
-                                
+            while ((now_point[0] != goal_point[0]) or (now_point[1] != goal_point[1])) and running: 
+                way = control.command(lst_points=control.path(Map=np.array(lst_map),start_point=now_point,end_point=goal_point),vector=vector)
+                keys = {MOVE_FORWARD:"MOVE_FORWARD",TURN_LEFT:"TURN_LEFT",TURN_RIGHT:"TURN_RIGHT"} # dict keys for convert each num with it command
+
                 if way is None:
                     print("there is no way (you can ignore it)",file=sys.stderr,flush=True)
 
@@ -283,9 +288,10 @@ while running:
                 if goal_point:
                     goal_point = dct_map["points"][goal_point]
 
-                    while (now_point != goal_point) and running: 
-                        way,keys = control.command(lst_points=control.path(Map=np.array(lst_map),start_point=now_point,end_point=goal_point),vector=vector)
-                                                
+                    while ((now_point[0] != goal_point[0]) or (now_point[1] != goal_point[1])) and running: 
+                        way = control.command(lst_points=control.path(Map=np.array(lst_map),start_point=now_point,end_point=goal_point),vector=vector)
+                        keys = {MOVE_FORWARD:"MOVE_FORWARD",TURN_LEFT:"TURN_LEFT",TURN_RIGHT:"TURN_RIGHT"} # dict keys for convert each num with it command
+                        
                         if way is None:
                             print("there is no way (you can ignore it)",file=sys.stderr,flush=True)
 
