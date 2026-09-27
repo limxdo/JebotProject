@@ -49,7 +49,7 @@ MAP_SHARE_PATH = SHARE_PATH + "/map"
 MAP_SHARE_FILE = MAP_SHARE_PATH + "/map.json"
 MAP_CACHE_FILE = CACHE_PATH + "/cash_points.json"
 
-# constants for motord commands, for less RAM used                        mnnnnnnnnnnnnnnnnnnnn
+# constants for motord commands, for less RAM used
 MOVE_FORWARD = 1
 TURN_LEFT = 2
 TURN_RIGHT = 3

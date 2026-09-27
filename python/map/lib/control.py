@@ -37,6 +37,10 @@ import sys
 """this func convert Path's (func) output to command for robot , 
 it takes Path output as (lst_point) and vector (it is where does robot look) and it return list of commands to robot """
 def command(lst_points: list,vector : str) -> tuple:
+    #commands
+    # 1 -> MOVE_FORWARD
+    # 2 -> TURN_LEFT
+    # 3 -> TURN_RIGHT
     
     if not lst_points: # if lst_points empty , the func will return None 
         return None
@@ -45,8 +49,7 @@ def command(lst_points: list,vector : str) -> tuple:
     first_point = lst_points[0] # save first point in lst_points
     lst_points = lst_points[1:] # remove first point from lst_points
     lst_current_points = []
-    keys_convertors = {1:"MOVE_FORWARD",2:"TURN_LEFT",3:"TURN_RIGHT"} # dict for covert string to num , to use less RAM
-
+    
     for point in lst_points:
         # list near point from our point var
         lst_near_points = [(first_point[0]+1,first_point[1]), # down
@@ -86,7 +89,7 @@ def command(lst_points: list,vector : str) -> tuple:
             first_point = point 
             vector = dct_vectors[point]
     
-    return np.array(lst_command,dtype=np.int8),keys_convertors
+    return np.array(lst_command,dtype=np.int8)
 
 """this func responsible for find the shortest way from the begining point to the end point
 it takes Map and begining point and end point and return a list points it is like [(1,2),(3,4)]"""
