@@ -11,7 +11,7 @@
 # 11111111111111111111,
 # 11111111111111111111,
 
-"""Copyright (C) <2026>  <Abdulahk1>
+"""Copyright (C) <2026>  <Abdulahk1> 
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -34,9 +34,12 @@ import sys
 
 
 
-"""this func convert Path's (func) output to command for robot , 
-it takes Path output as (lst_point) and vector (it is where does robot look) and it return list of commands to robot """
+
 def command(lst_points: list,vector : str) -> tuple:
+    """this func convert Path's (func) output to command for robot , 
+    it takes Path output as (lst_point) and vector 
+    (it is where does robot look) and it return list of commands to robot """
+    
     #commands
     # 1 -> MOVE_FORWARD
     # 2 -> TURN_LEFT
@@ -91,10 +94,12 @@ def command(lst_points: list,vector : str) -> tuple:
     
     return np.array(lst_command,dtype=np.int8)
 
-"""this func responsible for find the shortest way from the begining point to the end point
-it takes Map and begining point and end point and return a list points it is like [(1,2),(3,4)]"""
+
 #A*search algorithm
 def path(Map : np.array,start_point:tuple,end_point:tuple) -> list:
+    """this func responsible for find the shortest way from the begining point to the end point
+    it takes Map and begining point and end point and return a list points it is like [(1,2),(3,4)]"""
+
     #vars
     hight,wight = np.shape(Map) # get map's dimensions
     start_point = tuple(start_point) # make sure that the type of var is correct
