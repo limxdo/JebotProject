@@ -18,7 +18,7 @@
 #define MOTORD_PIDFILE RUNTIME_PATH "/motord/pid"
 
 /* config (tmp) */
-#define MAX_DISTANCE_CM 35
+#define MAX_DISTANCE_CM 40
 #define WAIT_TIME_US 50000
 
 /* GPIOs */
@@ -254,31 +254,22 @@ int main(void) {
         pthread_mutex_unlock(&front_left.lock);
 
         if (motord_pid > 0) {
-            if (right_distance || left_distance) {
-                if (right_distance <= MAX_DISTANCE_CM || left_distance <= MAX_DISTANCE_CM) {
-                    if (!waiting) {
-                        /* start timer */
-                        wait_time = now;
-                        waiting = true;
-                    }
-                    else if ((now - wait_time) >= WAIT_TIME_US) {
-                        if (!blocked) {
-                            kill(motord_pid, SIGUSR1);
-                            blocked = true;
-                            if (right_distance < left_distance && right_distance != 0.0f)
-                                log_info("Obstacle Detected on front_right: %.2fcm\n", right_distance);
-                            else if (left_distance < right_distance && left_distance != 0.0f)
-                                log_info("Obstacle Detected on front_left: %.2fcm\n", left_distance);
-                        }
-                        waiting = false;
-                    }
+            if ((right_distance > 0 && right_distance <= MAX_DISTANCE_CM) || (left_distance > 0 && left_distance <= MAX_DISTANCE_CM)) {
+                if (!waiting) {
+                    /* start timer */
+                    wait_time = now;
+                    waiting = true;
                 }
-                else {
-                    waiting = false;
-                    if (blocked) {
-                        kill(motord_pid, SIGUSR2);
-                        blocked = false;
+                else if ((now - wait_time) >= WAIT_TIME_US) {
+                    if (!blocked) {
+                        kill(motord_pid, SIGUSR1);
+                        blocked = true;
+                        if (right_distance < left_distance && right_distance != 0.0f)
+                            log_info("Obstacle Detected on front_right: %.2fcm\n", right_distance);
+                        else if (left_distance < right_distance && left_distance != 0.0f)
+                            log_info("Obstacle Detected on front_left: %.2fcm\n", left_distance);
                     }
+                    waiting = false;
                 }
             }
             else {
