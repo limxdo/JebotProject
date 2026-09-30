@@ -12,6 +12,7 @@ from time import sleep
 import json
 import numpy as np
 import jebot.control as control 
+from copy import deepcopy
 
 # Constants
 # jebot data paths
@@ -124,6 +125,7 @@ try:
     # read map.json file to get map of the plase & points
     with open(MAP_SHARE_FILE) as fp:
         dct_map = json.load(fp)
+        dct_map["school_hall"] = np.array(dct_map["school_hall"])
 
     # create paths
     if not os.path.exists(CACHE_PATH):
@@ -226,7 +228,7 @@ while running:
         # process code here
         # vars
         user_clear_command = get_user_command() # user command
-        lst_map = dct_map["maps"]["school_hall"] # get map from map.json
+        lst_map = dct_map["maps"]["school_hall"].copy() # get map from map.json
         
         # if we dont take data from cache file we will use default value
         if not now_point:
