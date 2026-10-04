@@ -27,6 +27,8 @@ int gpio_chip_open(gpio_chip_t *chip, int chip_num, char *consumer_label) {
 }
 
 void gpio_chip_close(gpio_chip_t *chip) {
+    if (!chip) return;
+
     for (size_t i = 0; i < GPIOHANDLES_MAX; i++) {
         if (chip->lines[i].claimed) {
             gpio_free(chip, i);
@@ -37,6 +39,7 @@ void gpio_chip_close(gpio_chip_t *chip) {
 }
 
 int gpio_claim_output(gpio_chip_t *chip, int gpio, int default_value) {
+    if (!chip || chip->lines[gpio].claimed) return -1;
 
     struct gpiohandle_request req = {
         .lines = 1,
@@ -62,6 +65,7 @@ int gpio_claim_output(gpio_chip_t *chip, int gpio, int default_value) {
 }
 
 int gpio_claim_input(gpio_chip_t *chip, int gpio) {
+    if (!chip || chip->lines[gpio].claimed) return -1;
 
     struct gpiohandle_request req = {
         .lines = 1,
@@ -85,7 +89,7 @@ int gpio_claim_input(gpio_chip_t *chip, int gpio) {
 }
 
 void gpio_free(gpio_chip_t *chip, int gpio) {
-    if (!chip->lines[gpio].claimed) return;
+    if (!chip || chip->lines[gpio].claimed) return;
 
     close(chip->lines[gpio].line_fd);
     chip->lines[gpio].claimed = false;
