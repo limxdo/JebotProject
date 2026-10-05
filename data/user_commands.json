@@ -9,7 +9,7 @@
     },
     "GOTO_MANAGER_ROOM": {
         "sound": "follow_me.wav",
-        "point": null
+        "point": "manager_room"
     },
     "GOTO_FIRST_CLASS": {
         "sound": "follow_me.wav",
