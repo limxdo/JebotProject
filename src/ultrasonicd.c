@@ -310,7 +310,8 @@ exit:
 
     runtime_exit();
 
-    kill(motord_pid, SIGUSR2); // unblock motord before exit
+    if (motord_pid > 0) // important! check pid before send signal
+        kill(motord_pid, SIGUSR2); // unblock motord before exit
 
     return exit_status;
 }
