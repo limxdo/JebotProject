@@ -202,7 +202,7 @@ try:
     # read map.json file to get map of the plase & points
     with open(MAP_SHARE_FILE) as fp:
         dct_map = json.load(fp)
-        dct_map["maps"]["school_hall"] = np.array(dct_map,dtype=np.int8)
+        dct_map["maps"]["school_hall"] = np.array(dct_map["maps"]["school_hall"],dtype=np.int8)
 
     # create paths
     if not os.path.exists(CACHE_PATH):
@@ -324,8 +324,8 @@ while running:
 
                     
                     now_point,vector = current_point(last_point=now_point,vector=vector,last_command=keys[step])
-        else:
-            goal_point = None # after arriving at the goal_point , change gaol_points to None
+            else:
+                goal_point = None # after arriving at the goal_point , change gaol_points to None
 
     except Exception as e:
         print(f"error: {e}", file=sys.stderr, flush=True)
