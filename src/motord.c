@@ -38,7 +38,7 @@
 
 /* PWM config */
 #define PERIOD_HZ          10000 // 10kHz
-#define DUTY_CYCLE_PERCENT 35
+#define DUTY_CYCLE_PERCENT 75
 
 
 /* Encoders */
