@@ -34,7 +34,7 @@ int gpio_chip_open(gpio_chip_t *chip, int chip_num, char *consumer_label) {
 }
 
 void gpio_chip_close(gpio_chip_t *chip) {
-    if (!chip) return;
+    if (!chip || chip->chip_fd < 0) return;
 
     for (size_t i = 0; i < GPIOHANDLES_MAX; i++) {
         /* use `gpio_free` */
