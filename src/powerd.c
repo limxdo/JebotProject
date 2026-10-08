@@ -1,9 +1,9 @@
 #include "../include/runtime.h"
 #include "../include/logger.h"
+#include "../include/gpio_chardev.h"
 
 #include <linux/i2c-dev.h>
 #include <sys/ioctl.h>
-#include <lgpio.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -13,7 +13,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-int gpio = -1;
+gpio_chip_t chip0;
 volatile bool running = true;
 
 
@@ -267,7 +267,7 @@ float x1201_get_voltage(int fd) {
 void x1201_get_all(struct x1201 *hat) {
     hat->voltage_V = x1201_get_voltage(hat->i2c_fd);
     hat->capacity = x1201_get_capacity(hat->i2c_fd);
-    hat->charging = lgGpioRead(gpio, X1201_POWER_LOSS_GPIO);
+    hat->charging = gpio_read(&chip0, X1201_POWER_LOSS_GPIO);
 }
 
 void x1201_write_values(struct x1201 *hat) {
@@ -304,15 +304,22 @@ int main(void) {
     runtime_pid(getpid());
 
     /* gpio */
-    gpio = lgGpiochipOpen(0);
-    if (gpio < 0) {
-        log_fatal("lgGpiochipOpen: %s\n", lguErrorText(gpio));
+    if (gpio_chip_open(&chip0, 0, "powerd") < 0) {
+        log_fatal("gpio_chip_open: %s\n", strerror(errno));
         exit_status = 1;
         goto exit;
     }
 
-    lgGpioClaimInput(gpio, LG_SET_PULL_NONE, X1201_POWER_LOSS_GPIO);
-    lgGpioClaimOutput(gpio, LG_SET_OUTPUT, X1201_CHARGING_CTRL_GPIO, 0); // enable charging
+    if (gpio_claim_input(&chip0, X1201_POWER_LOSS_GPIO) < 0) {
+        log_fatal("gpio_claim_input: %s\n", strerror(errno));
+        exit_status = 1;
+        goto exit;
+    }
+    if (gpio_claim_output(&chip0, X1201_CHARGING_CTRL_GPIO, 0)/* enable charging by default */) {
+        log_fatal("gpio_claim_output: %s\n", strerror(errno));
+        exit_status = 1;
+        goto exit;
+    }
 
     /* INA219 */ 
     struct ina219 ina219 = {0};
@@ -378,7 +385,7 @@ exit:
     close(ina219.i2c_fd);
     close(x1201.i2c_fd);
 
-    lgGpiochipClose(gpio);
+    gpio_chip_close(&chip0);
 
     runtime_exit();
 

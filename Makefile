@@ -1,6 +1,6 @@
 # compiler
 CFLAGS 	:= -Wall -Wextra -Wno-format-truncation -Wno-unused-parameter
-LDFLAGS := -llgpio
+LDFLAGS := -lpthread
 CC 		:= gcc
 
 # paths
@@ -32,27 +32,30 @@ TIMER_OBJ := $(BUILD)/timer.o
 PWM_SYSFS_SRC := $(SRC)/pwm_sysfs.c
 PWM_SYSFS_OBJ := $(BUILD)/pwm_sysfs.o
 
+GPIO_CHARDEV_SRC := $(SRC)/gpio_chardev.c
+GPIO_CHARDEV_OBJ := $(BUILD)/gpio_chardev.o
+
 # create $(BIN) and $(BUILD) first
 $(shell mkdir -p $(BUILD) $(BIN))
 
 all: $(MOTORD_BIN) $(POWERD_BIN) $(ULTRASONICD_BIN)
 
-$(MOTORD_BIN): $(MOTORD_OBJ) $(RUNTIME_OBJ) $(TIMER_OBJ) $(PWM_SYSFS_OBJ)
+$(MOTORD_BIN): $(MOTORD_OBJ) $(RUNTIME_OBJ) $(TIMER_OBJ) $(PWM_SYSFS_OBJ) $(GPIO_CHARDEV_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) -lm
 
 $(MOTORD_OBJ): $(MOTORD_SRC)
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) -c -o $@ $< 
 
 
-$(POWERD_BIN): $(POWERD_OBJ) $(RUNTIME_OBJ)
+$(POWERD_BIN): $(POWERD_OBJ) $(RUNTIME_OBJ) $(GPIO_CHARDEV_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) 
 
 $(POWERD_OBJ): $(POWERD_SRC)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 
-$(ULTRASONICD_BIN): $(ULTRASONICD_OBJ) $(TIMER_OBJ) $(RUNTIME_OBJ)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) -lpthread
+$(ULTRASONICD_BIN): $(ULTRASONICD_OBJ) $(TIMER_OBJ) $(RUNTIME_OBJ) $(GPIO_CHARDEV_OBJ)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(ULTRASONICD_OBJ): $(ULTRASONICD_SRC)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -65,6 +68,9 @@ $(TIMER_OBJ): $(TIMER_SRC)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(PWM_SYSFS_OBJ): $(PWM_SYSFS_SRC)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(GPIO_CHARDEV_OBJ): $(GPIO_CHARDEV_SRC)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 

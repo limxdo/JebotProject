@@ -2,8 +2,8 @@
 #include "../include/pwm_sysfs.h"
 #include "../include/logger.h"
 #include "../include/timer.h"
+#include "../include/gpio_chardev.h"
 
-#include <lgpio.h>
 #include <linux/i2c-dev.h>
 #include <math.h>
 #include <sys/ioctl.h>
@@ -76,7 +76,7 @@ long target_angle = 0;
 /* global vars */
 volatile bool running = true;   // main loop
 volatile bool blocked = false;  // if ultrasonicd detect an obstacle, send signal to motord to block any FORWARD request
-int gpio = -1;                  // gpio handler (lgpio)
+gpio_chip_t chip0;
 
 /* PWMs */
 pwm_t pwm0 = PWM_INIT,
@@ -86,14 +86,14 @@ pwm_t pwm0 = PWM_INIT,
 
 
 /* Encoders interrupt service routine function */
-void encoder_isr(int e, lgGpioAlert_p evt, void *userdata) {
-    for (int i = 0; i < e; i++) {
-        if (evt[i].report.gpio == RIGHT_ENCODER_A_GPIO) {
+void encoder_callback(int gpio, int level, void *userdata) {
+    switch (gpio) {
+        case RIGHT_ENCODER_A_GPIO:
             right_enc_a_counter++;
-        }
-        else if (evt[i].report.gpio == LEFT_ENCODER_A_GPIO) {
+            break;
+        case LEFT_ENCODER_A_GPIO:
             left_enc_a_counter++;
-        }
+            break;
     }
 }
 
@@ -384,23 +384,24 @@ int main(void) {
     runtime_pid(getpid());
 
     /* open gpiochip */
-    gpio = lgGpiochipOpen(0);
-
-    if (gpio < 0) {
-        log_fatal("lgGpiochipOpen: %s\n", lguErrorText(gpio));
+    if (gpio_chip_open(&chip0, 0, "motord") < 0) {
+        log_fatal("gpio_chip_open: %s\n", strerror(errno));
         exit_status = 1;
         goto exit;
     }
 
     
     /* setup encoders */
-    lgGpioClaimInput(gpio, LG_SET_PULL_NONE, RIGHT_ENCODER_A_GPIO);
-    lgGpioClaimInput(gpio, LG_SET_PULL_NONE, LEFT_ENCODER_A_GPIO);
-
-    lgGpioSetAlertsFunc(gpio, RIGHT_ENCODER_A_GPIO, encoder_isr, NULL);
-    lgGpioSetAlertsFunc(gpio, LEFT_ENCODER_A_GPIO, encoder_isr, NULL);
-    lgGpioClaimAlert(gpio, 0, LG_BOTH_EDGES, RIGHT_ENCODER_A_GPIO, -1);
-    lgGpioClaimAlert(gpio, 0, LG_BOTH_EDGES, LEFT_ENCODER_A_GPIO, -1);
+    if (gpio_claim_event(&chip0, RIGHT_ENCODER_A_GPIO, GPIOEVENT_REQUEST_BOTH_EDGES, 0, encoder_callback, NULL) < 0) {
+        log_fatal("gpio_claim_event: %s\n", strerror(errno));
+        exit_status = 1;
+        goto exit;
+    }
+    if (gpio_claim_event(&chip0, LEFT_ENCODER_A_GPIO, GPIOEVENT_REQUEST_BOTH_EDGES, 0, encoder_callback, NULL) < 0) {
+        log_fatal("gpio_claim_event: %s\n", strerror(errno));
+        exit_status = 1;
+        goto exit;
+    }
 
     /* Open PWMs */
     if (
@@ -590,7 +591,7 @@ int main(void) {
                     move_ret = move(request_args.cmd, -1);
 
                 if (move_ret < 0) {
-                    log_err("EXECUTION: FAILED (%s)\n", errno ? strerror(errno) : lguErrorText(move_ret));
+                    log_err("EXECUTION: FAILED (%s)\n", strerror(errno));
                     move(CMD_STOP);
                     if (request_args.reply)
                         reply(REPLY_FAILED, 0);
@@ -611,7 +612,7 @@ exit:
     move(CMD_STOP);
 
     /* close gpiochip */
-    lgGpiochipClose(gpio);
+    gpio_chip_close(&chip0);
 
     /* close PWMs */
     pwm_close(&pwm0);

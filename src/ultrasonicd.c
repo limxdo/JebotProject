@@ -1,8 +1,8 @@
 #include "../include/timer.h"
 #include "../include/runtime.h"
 #include "../include/logger.h"
+#include "../include/gpio_chardev.h"
 
-#include <lgpio.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <signal.h>
@@ -29,7 +29,7 @@
 #define LEFT_TRIG 22
 
 /* global vars */
-int gpio = -1;                  // gpio handler (lgpio)
+gpio_chip_t chip0;              // gpio chip
 volatile bool running = true;   // loop condition
 bool blocked = false;           // if sended signal to motord
 pid_t motord_pid = -1;
@@ -90,13 +90,13 @@ uint64_t pulsein(int echo, uint64_t timeout_us) {
     uint64_t start, end, start_time;
 
     start_time = timer_now(TIMER_US);
-    while (lgGpioRead(gpio, echo) == 0) {
+    while (gpio_read(&chip0, echo) == 0) {
         if (timer_now(TIMER_US) - start_time > timeout_us) return 0; // timeouted
     }
     start = timer_now(TIMER_US);
 
     start_time = timer_now(TIMER_US);
-    while (lgGpioRead(gpio, echo) == 1) {
+    while (gpio_read(&chip0, echo) == 1) {
         if (timer_now(TIMER_US) - start_time > timeout_us) return 0; // timeouted
     }
     end = timer_now(TIMER_US);
@@ -108,13 +108,11 @@ uint64_t pulsein(int echo, uint64_t timeout_us) {
 float get_distance(int trig, int echo) {
     uint64_t duration;
 
-    lgGpioWrite(gpio, trig, 0);
+    gpio_write(&chip0, trig, 0);
     timer_busy_wait(TIMER_US, 2);
-    lgGpioWrite(gpio, trig, 1);
+    gpio_write(&chip0, trig, 1);
     timer_busy_wait(TIMER_US, 10);
-    lgGpioWrite(gpio, trig, 0);
-
-    //lgTxPulse(gpio, trig, 10, 0, 0, 1);
+    gpio_write(&chip0, trig, 0);
 
      /*
       * can get timeout_us for any distance (cm) from:
@@ -148,6 +146,11 @@ void* ultrasonic_thread_func(void *arg) {
 
 int main(void) {
 
+    /* signal handling */
+    signal(SIGTERM, handler);
+    signal(SIGINT, handler);
+    signal(SIGPIPE, SIG_IGN);
+
     int exit_status = 0;
 
     if (runtime_init("ultrasonicd", 0755) < 0) {
@@ -167,43 +170,20 @@ int main(void) {
         motord_pid = -1;
     }
 
-    gpio = lgGpiochipOpen(0);
-    if (gpio < 0) {
-        log_fatal("lgGpiochipOpen: %s\n", lguErrorText(gpio));
-        return 1;
-    }
-
-    /* signal handling */
-    signal(SIGTERM, handler);
-    signal(SIGINT, handler);
-    signal(SIGPIPE, SIG_IGN);
-
-    if (gpio < 0) {
-        log_fatal("lgGpiochipOpen: %s\n", lguErrorText(gpio));
+    if (gpio_chip_open(&chip0, 0, "ultrasonicd") < 0) {
+        log_fatal("gpio_chip_open: %s\n", strerror(errno));
         return 1;
     }
 
     /* setup lines */
-    int io = -1;
+    if (
+        gpio_claim_output(&chip0, RIGHT_TRIG, 0) < 0 ||
+        gpio_claim_input(&chip0, RIGHT_ECHO) < 0 ||
 
-    if ((io = lgGpioClaimOutput(gpio, LG_SET_OUTPUT, RIGHT_TRIG, 0)) < 0) {
-        log_fatal("%s\n", lguErrorText(io));
-        exit_status = 1;
-        goto exit;
-    }
-    if ((io = lgGpioClaimInput(gpio, LG_SET_PULL_NONE, RIGHT_ECHO)) < 0) {
-        log_fatal("%s\n", lguErrorText(io));
-        exit_status = 1;
-        goto exit;
-    }
-
-    if ((io = lgGpioClaimOutput(gpio, LG_SET_OUTPUT, LEFT_TRIG, 0)) < 0) {
-        log_fatal("%s\n", lguErrorText(io));
-        exit_status = 1;
-        goto exit;
-    }
-    if ((io = lgGpioClaimInput(gpio, LG_SET_PULL_NONE, LEFT_ECHO)) < 0) {
-        log_fatal("%s\n", lguErrorText(io));
+        gpio_claim_output(&chip0, LEFT_TRIG, 0) < 0 ||
+        gpio_claim_input(&chip0, LEFT_ECHO) < 0
+    ) {
+        log_fatal("gpio_claim: %s\n", strerror(errno));
         exit_status = 1;
         goto exit;
     }
@@ -214,13 +194,13 @@ int main(void) {
         .trig = RIGHT_TRIG,
         .echo = RIGHT_ECHO,
         .dist_file_path = "front_right",
-        0
+        .lock = PTHREAD_MUTEX_INITIALIZER
     };
     ultrasonic_t front_left = {
         .trig = LEFT_TRIG,
         .echo = LEFT_ECHO,
         .dist_file_path = "front_left",
-        0
+        .lock = PTHREAD_MUTEX_INITIALIZER
     };
 
     pthread_create(&front_right.thread_id, NULL, ultrasonic_thread_func, &front_right);
@@ -306,7 +286,7 @@ exit:
     pthread_join(front_right.thread_id, NULL);
     pthread_join(front_left.thread_id, NULL);
 
-    lgGpiochipClose(gpio);
+    gpio_chip_close(&chip0);
 
     runtime_exit();
 
