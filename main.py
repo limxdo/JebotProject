@@ -69,15 +69,19 @@ try:
 
     # function to get user command from sttd
     def get_user_command():
-        with open(STTD_TEXT_FILE, 'r') as f:
-            cmd = f.read().strip()
+        cmd = None
 
-        # temporary method to delete the command after reading it (this will be changed later).
-        with open(STTD_TEXT_FILE, 'w') as f:
-            f.write("")
+        # temporary fix: check size before read to avoid losing commands
+        # written by sttd between the read and clear
+        if os.path.getsize(STTD_TEXT_FILE) > 0:
+            with open(STTD_TEXT_FILE, 'r') as f:
+                cmd = f.read().strip()
 
-        if cmd: return cmd
-        else: return None
+            # temporary method to delete the command after reading it (this will be changed later).
+            with open(STTD_TEXT_FILE, 'w') as f:
+                f.write("")
+
+        return cmd if cmd else None
 
     def get_current_lang():
         with open(STTD_LANG_FILE, 'r') as f:
