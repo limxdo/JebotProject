@@ -310,12 +310,12 @@ int main(void) {
         goto exit;
     }
 
-    if (gpio_claim_input(&chip0, X1201_POWER_LOSS_GPIO) < 0) {
+    if (gpio_claim_input(&chip0, X1201_POWER_LOSS_GPIO, 0) < 0) {
         log_fatal("gpio_claim_input: %s\n", strerror(errno));
         exit_status = 1;
         goto exit;
     }
-    if (gpio_claim_output(&chip0, X1201_CHARGING_CTRL_GPIO, 0)/* enable charging by default */) {
+    if (gpio_claim_output(&chip0, X1201_CHARGING_CTRL_GPIO, 0, 0)/* enable charging by default */) {
         log_fatal("gpio_claim_output: %s\n", strerror(errno));
         exit_status = 1;
         goto exit;

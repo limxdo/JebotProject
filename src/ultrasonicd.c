@@ -177,11 +177,11 @@ int main(void) {
 
     /* setup lines */
     if (
-        gpio_claim_output(&chip0, RIGHT_TRIG, 0) < 0 ||
-        gpio_claim_input(&chip0, RIGHT_ECHO) < 0 ||
+        gpio_claim_output(&chip0, RIGHT_TRIG, 0, 0) < 0 ||
+        gpio_claim_input(&chip0, RIGHT_ECHO, 0) < 0 ||
 
-        gpio_claim_output(&chip0, LEFT_TRIG, 0) < 0 ||
-        gpio_claim_input(&chip0, LEFT_ECHO) < 0
+        gpio_claim_output(&chip0, LEFT_TRIG, 0, 0) < 0 ||
+        gpio_claim_input(&chip0, LEFT_ECHO, 0) < 0
     ) {
         log_fatal("gpio_claim: %s\n", strerror(errno));
         exit_status = 1;

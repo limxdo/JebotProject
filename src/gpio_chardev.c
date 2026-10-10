@@ -1,17 +1,21 @@
 #include "../include/gpio_chardev.h"
 
 #include <linux/gpio.h>
+#include <pthread.h>
 #include <sys/ioctl.h>
 #include <fcntl.h>
+#include <errno.h>
 #include <unistd.h>
 #include <string.h>
+#include <time.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
 
 int gpio_chip_open(gpio_chip_t *chip, int chip_num, char *consumer_label) {
     if (!chip || chip_num < 0) return -1;
 
-    memset(chip, 0, sizeof(gpio_chip_t));
+    memset(chip, 0, sizeof(*chip));
 
     char chardev_path[30];
     snprintf(chardev_path, sizeof(chardev_path), "/dev/gpiochip%d", chip_num);
@@ -34,7 +38,10 @@ int gpio_chip_open(gpio_chip_t *chip, int chip_num, char *consumer_label) {
 }
 
 void gpio_chip_close(gpio_chip_t *chip) {
-    if (!chip || chip->chip_fd < 0) return;
+    if (!chip || chip->chip_fd < 0) {
+        errno = EINVAL;
+        return;
+    }
 
     for (size_t i = 0; i < GPIOHANDLES_MAX; i++) {
         /* use `gpio_free` */
@@ -47,13 +54,19 @@ void gpio_chip_close(gpio_chip_t *chip) {
     close(chip->chip_fd);
 }
 
-int gpio_claim_output(gpio_chip_t *chip, int gpio, int default_value) {
-    if (!chip || chip->lines[gpio].claimed) return -1;
+int gpio_claim_output(gpio_chip_t *chip, int gpio, __u32 handleflags, int default_value) {
+    if (
+        !chip || chip->chip_fd < 0 || (gpio < 0 || gpio >= GPIOHANDLES_MAX) ||
+        chip->lines[gpio].claimed
+    ) {
+        errno = EINVAL;
+        return -1;
+    }
 
     /* handle request for output */
     struct gpiohandle_request req = {0};
     req.lineoffsets[0] = gpio;
-    req.flags = GPIOHANDLE_REQUEST_OUTPUT;
+    req.flags = GPIOHANDLE_REQUEST_OUTPUT | handleflags;
     req.default_values[0] = default_value;
     req.lines = 1;
 
@@ -66,20 +79,26 @@ int gpio_claim_output(gpio_chip_t *chip, int gpio, int default_value) {
         return -1;
 
     chip->lines[gpio].line_fd = req.fd; // set fd
-    chip->lines[gpio].flags = GPIOHANDLE_REQUEST_OUTPUT;
+    chip->lines[gpio].flags = GPIOHANDLE_REQUEST_OUTPUT | handleflags;
     chip->lines[gpio].level = default_value;
     chip->lines[gpio].claimed = true; // mark it as claimed
 
     return 0;
 }
 
-int gpio_claim_input(gpio_chip_t *chip, int gpio) {
-    if (!chip || chip->lines[gpio].claimed) return -1;
+int gpio_claim_input(gpio_chip_t *chip, int gpio, __u32 handleflags) {
+    if (
+        !chip || chip->chip_fd < 0 || (gpio < 0 || gpio >= GPIOHANDLES_MAX) ||
+        chip->lines[gpio].claimed
+    ) {
+        errno = EINVAL;
+        return -1;
+    }
 
     /* handle request for input */
     struct gpiohandle_request req = {0};
     req.lines = 1;
-    req.flags = GPIOHANDLE_REQUEST_INPUT;
+    req.flags = GPIOHANDLE_REQUEST_INPUT | handleflags;
     req.lineoffsets[0] = gpio;
 
     if (*chip->consumer_label)
@@ -90,17 +109,27 @@ int gpio_claim_input(gpio_chip_t *chip, int gpio) {
         return -1;
 
     chip->lines[gpio].line_fd = req.fd; // set fd
-    chip->lines[gpio].flags = GPIOHANDLE_REQUEST_INPUT;
-    chip->lines[gpio].claimed = true; //  mark it as claimed
+    chip->lines[gpio].flags = GPIOHANDLE_REQUEST_INPUT | handleflags;
+    chip->lines[gpio].claimed = true; // mark it as claimed
 
     return 0;
 }
 
 void gpio_free(gpio_chip_t *chip, int gpio) {
-    if (!chip || !chip->lines[gpio].claimed) return;
+    if (
+        !chip || chip->chip_fd < 0 || (gpio < 0 || gpio >= GPIOHANDLES_MAX) ||
+        !chip->lines[gpio].claimed
+    ) {
+        errno = EINVAL;
+        return;
+    }
 
     /* if normal I/O */
     if (chip->lines[gpio].line_fd >= 0) {
+        /* close pwm if exists */
+        if (chip->lines[gpio].pwm_running)
+            gpio_software_pwm(chip, gpio, 0, 0);
+
         close(chip->lines[gpio].line_fd);
         chip->lines[gpio].line_fd = -1;
         chip->lines[gpio].claimed = false;
@@ -112,12 +141,18 @@ void gpio_free(gpio_chip_t *chip, int gpio) {
         close(chip->lines[gpio].event_fd);
         chip->lines[gpio].event_fd = -1;
         chip->lines[gpio].claimed = false;
+        memset(&chip->lines[gpio].event_data, 0, sizeof(chip->lines[gpio].event_data));
     }
 }
 
 int gpio_write(gpio_chip_t *chip, int gpio, int level) {
-    if (!chip->lines[gpio].claimed || chip->lines[gpio].line_fd < 0 || !(chip->lines[gpio].flags & GPIOHANDLE_REQUEST_OUTPUT))
+    if (
+        !chip || chip->chip_fd < 0 || (gpio < 0 || gpio >= GPIOHANDLES_MAX) ||
+        !chip->lines[gpio].claimed || chip->lines[gpio].line_fd < 0 || !(chip->lines[gpio].flags & GPIOHANDLE_REQUEST_OUTPUT)
+    ) {
+        errno = EINVAL;
         return -1;
+    }
 
     /* handle data to request write */
     struct gpiohandle_data data;
@@ -134,8 +169,13 @@ int gpio_write(gpio_chip_t *chip, int gpio, int level) {
 }
 
 int gpio_read(gpio_chip_t *chip, int gpio) {
-    if (!chip->lines[gpio].claimed || chip->lines[gpio].line_fd < 0 || !(chip->lines[gpio].flags & GPIOHANDLE_REQUEST_INPUT))
+    if (
+        !chip || chip->chip_fd < 0 || (gpio < 0 || gpio >= GPIOHANDLES_MAX) ||
+        !chip->lines[gpio].claimed || chip->lines[gpio].line_fd < 0 || !(chip->lines[gpio].flags & GPIOHANDLE_REQUEST_INPUT)
+    ) {
+        errno = EINVAL;
         return -1;
+    }
 
     /* handle data to request read */
     struct gpiohandle_data data;
@@ -173,8 +213,10 @@ static void* event_thread_func(void *arg) {
 }
 
 int gpio_claim_event(gpio_chip_t *chip, int gpio, __u32 eventflags, __u32 handleflags, gpio_event_callback_t callback, void *userdata) {
-    if (!chip || chip->lines[gpio].claimed)
+    if (!chip || chip->chip_fd < 0 || (gpio < 0 || gpio >= GPIOHANDLES_MAX) || chip->lines[gpio].claimed) {
+        errno = EINVAL;
         return -1;
+    }
 
     /* event request data */
     struct gpioevent_request req = {0};
@@ -203,6 +245,70 @@ int gpio_claim_event(gpio_chip_t *chip, int gpio, __u32 eventflags, __u32 handle
 
     /* create the thread */
     pthread_create(&chip->lines[gpio].event_thread_id, NULL, event_thread_func, &chip->lines[gpio].event_data);
+
+    return 0;
+}
+
+static void* software_pwm_thread_func(void *arg) {
+    struct gpio_pwm_thread_data *pwm_data = arg; // the arg must be a pointer to `struct gpio_pwm_thread_data`
+
+    /* start software pwm */
+    while (pwm_data->chip->lines[pwm_data->gpio].pwm_running) {
+        gpio_write(pwm_data->chip, pwm_data->gpio, 1);
+        nanosleep(&pwm_data->on_ts, NULL);
+        gpio_write(pwm_data->chip, pwm_data->gpio, 0);
+        nanosleep(&pwm_data->off_ts, NULL);
+    }
+
+    return NULL;
+}
+
+int gpio_software_pwm(gpio_chip_t *chip, int gpio, uint32_t freq_hz, float duty_cycle_percent) {
+    if (
+        (!chip || chip->chip_fd < 0 || !(chip->lines[gpio].claimed && chip->lines[gpio].flags & GPIOHANDLE_REQUEST_OUTPUT)) ||
+        (gpio < 0 || gpio >= GPIOHANDLES_MAX) ||
+        (duty_cycle_percent < 0.0f || duty_cycle_percent > 100.0f)
+    ) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (duty_cycle_percent <= 0.0f) {
+        /* close software pwm */
+        if (chip->lines[gpio].pwm_running) {
+            chip->lines[gpio].pwm_running = false;
+            pthread_join(chip->lines[gpio].pwm_thread_id, NULL);
+            memset(&chip->lines[gpio].pwm_data, 0, sizeof(chip->lines[gpio].pwm_data));
+        }
+
+        return 0;
+    }
+    /* zero divide */
+    else if (!freq_hz) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    /* calculate pwm values */
+    uint64_t period_ns = 1000000000 / freq_hz;
+    uint64_t on_ns = (period_ns * (duty_cycle_percent / 100.0f));
+    uint64_t off_ns = (period_ns - on_ns);
+
+    /* store/update values */
+    chip->lines[gpio].pwm_data.chip = chip;
+    chip->lines[gpio].pwm_data.gpio = gpio;
+
+    chip->lines[gpio].pwm_data.on_ts.tv_sec = on_ns / 1000000000;
+    chip->lines[gpio].pwm_data.on_ts.tv_nsec = on_ns % 1000000000;
+
+    chip->lines[gpio].pwm_data.off_ts.tv_sec = off_ns / 1000000000;
+    chip->lines[gpio].pwm_data.off_ts.tv_nsec = off_ns % 1000000000;
+
+    /* if pwm not running, start new pwm thread */
+    if (!chip->lines[gpio].pwm_running) {
+        chip->lines[gpio].pwm_running = true;
+        pthread_create(&chip->lines[gpio].pwm_thread_id, NULL, software_pwm_thread_func, &chip->lines[gpio].pwm_data);
+    }
 
     return 0;
 }
