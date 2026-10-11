@@ -52,6 +52,7 @@ void gpio_chip_close(gpio_chip_t *chip) {
 
     /* close the chip */
     close(chip->chip_fd);
+    chip->chip_fd = -1;
 }
 
 int gpio_claim_output(gpio_chip_t *chip, int gpio, __u32 handleflags, int default_value) {
