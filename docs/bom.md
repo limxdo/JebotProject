@@ -60,5 +60,10 @@ All from [same link](https://a.aliexpress.com/_c3R4e76b):
 ## Other
 - **1x** Mini USB 2.0 Microphone - [link](https://a.aliexpress.com/_c4KDrzFH)
 - **1x** Metal Push Button with blue LED (self-reset) - [link](https://a.aliexpress.com/_c3lJ4G43) - select `Blue circle Power, 16mm(with wire), 3-6V, Self-reset`
+- **1x** 5mm RGB LED (4-pin, common anode) - (*temporary, on-hand*)
+    - **3x** 100 ohms resistor - (*temporary for LED*)
+    > Current LED is a single 5mm RGB LED (common anode) kept as a temporary
+    > test. Final version will use multiple 5mm RGB LEDs (common cathode) in parallel with
+    > LED diffusers for better appearance and brightness.
 
 ---

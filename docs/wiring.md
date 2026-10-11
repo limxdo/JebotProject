@@ -115,8 +115,13 @@
 - Push Button+ -> `5v_busbar`
 - Push Button- -> `low_current_GND_busbar`
 - Push Button signal wires (green & white wires) -> `HAT` PSW (via JST XH2.54)
-
 > makes external `HAT` power button
+
+- 5mm RGB LED
+    - R-side -> 100 ohms resistor -> GPIO 9
+    - G-side -> 100 ohms resistor -> GPIO 10
+    - B-side -> 100 ohms resistor -> GPIO 11
+    - Common Anode side -> `3.3v busbar`
 
 ---
 
@@ -132,6 +137,9 @@
 | GPIO 24 | Left Encoder A  |
 | GPIO 2  | `SDA_busbar`    |
 | GPIO 3  | `SCL_busbar`    |
+| GPIO 9  | RGB LED R-side  |
+| GPIO 10 | RGB LED G-side  |
+| GPIO 11 | RGB LED B-side  |
 
 ---
 
