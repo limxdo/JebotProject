@@ -12,6 +12,7 @@ BUILD := build
 MOTORD_SRC := $(SRC)/motord.c
 MOTORD_OBJ := $(BUILD)/motord.o
 MOTORD_BIN := $(BIN)/motord
+
 # ultrasonicd
 ULTRASONICD_SRC := $(SRC)/ultrasonicd.c
 ULTRASONICD_OBJ := $(BUILD)/ultrasonicd.o
@@ -21,6 +22,11 @@ ULTRASONICD_BIN := $(BIN)/ultrasonicd
 POWERD_SRC := $(SRC)/powerd.c
 POWERD_OBJ := $(BUILD)/powerd.o
 POWERD_BIN := $(BIN)/powerd
+
+# ledd
+LEDD_SRC := $(SRC)/ledd.c
+LEDD_OBJ := $(BUILD)/ledd.o
+LEDD_BIN := $(BIN)/ledd
 
 # helpers
 RUNTIME_SRC := $(SRC)/runtime.c
@@ -38,7 +44,7 @@ GPIO_CHARDEV_OBJ := $(BUILD)/gpio_chardev.o
 # create $(BIN) and $(BUILD) first
 $(shell mkdir -p $(BUILD) $(BIN))
 
-all: $(MOTORD_BIN) $(POWERD_BIN) $(ULTRASONICD_BIN)
+all: $(MOTORD_BIN) $(POWERD_BIN) $(ULTRASONICD_BIN) $(LEDD_BIN)
 
 $(MOTORD_BIN): $(MOTORD_OBJ) $(RUNTIME_OBJ) $(TIMER_OBJ) $(PWM_SYSFS_OBJ) $(GPIO_CHARDEV_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) -lm
@@ -58,6 +64,13 @@ $(ULTRASONICD_BIN): $(ULTRASONICD_OBJ) $(TIMER_OBJ) $(RUNTIME_OBJ) $(GPIO_CHARDE
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(ULTRASONICD_OBJ): $(ULTRASONICD_SRC)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+
+$(LEDD_BIN): $(LEDD_OBJ) $(RUNTIME_OBJ) $(GPIO_CHARDEV_OBJ)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+$(LEDD_OBJ): $(LEDD_SRC)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 
