@@ -230,6 +230,8 @@ int move(cmd_t cmd, ...) {
     yaw = 0.0f;
 
     int status = 0;
+    int status_bak = 0;
+    int err = 0;
 
     /* execute command and error checking */
     switch (cmd) {
@@ -244,7 +246,13 @@ int move(cmd_t cmd, ...) {
             ((status = pwm_enable(&LEFT_FORWARD, true)) < 0) ||
             ((status = pwm_enable(&LEFT_BACKWARD, false)) < 0)
         ) {
-            move(CMD_STOP); // try to stop motors
+            /* save errno and status before try to stop motors using 'move(CMD_STOP)'
+             so we return the original failure, not the CMD_STOP result */
+            err = errno;
+            status_bak = status;
+
+            /* try to stop motors */
+            move(CMD_STOP);
         }
 
         break;
@@ -258,6 +266,9 @@ int move(cmd_t cmd, ...) {
             ((status = pwm_enable(&LEFT_FORWARD, false)) < 0) ||
             ((status = pwm_enable(&LEFT_BACKWARD, true)) < 0)
         ) {
+            err = errno;
+            status_bak = status;
+
             move(CMD_STOP);
         }
 
@@ -271,6 +282,9 @@ int move(cmd_t cmd, ...) {
             ((status = pwm_enable(&LEFT_FORWARD, true)) < 0) ||
             ((status = pwm_enable(&LEFT_BACKWARD, false)) < 0)
         ) {
+            err = errno;
+            status_bak = status;
+
             move(CMD_STOP);
         }
 
@@ -284,6 +298,9 @@ int move(cmd_t cmd, ...) {
             ((status = pwm_enable(&LEFT_FORWARD, false)) < 0) ||
             ((status = pwm_enable(&LEFT_BACKWARD, true)) < 0)
         ) {
+            err = errno;
+            status_bak = status;
+
             move(CMD_STOP);
         }
 
@@ -307,6 +324,13 @@ int move(cmd_t cmd, ...) {
     }
 
     va_end(args);
+
+    if (err)
+        errno = err;
+
+    if (status_bak)
+        status = status_bak;
+
     return status;
 }
 
@@ -374,9 +398,18 @@ int main(void) {
     /* ignore signals */
     signal(SIGPIPE, SIG_IGN);
 
+    int cmd_fifo_fd = -1;
     int exit_status = 0;
+    int mpu6050_fd = -1;
 
-    if (runtime_init("motord", 0755) < 0) {
+    int runtime_init_ret = -1;
+    int gpio_chip_open_ret = -1;
+    int pwm0_open_ret = -1,
+        pwm1_open_ret = -1,
+        pwm2_open_ret = -1,
+        pwm3_open_ret = -1;
+
+    if ((runtime_init_ret = runtime_init("motord", 0755)) < 0) {
         log_fatal("Runtime failed: %s\n", strerror(errno));
         exit_status = 1;
         goto exit;
@@ -384,7 +417,7 @@ int main(void) {
     runtime_pid(getpid());
 
     /* open gpiochip */
-    if (gpio_chip_open(&chip0, 0, "motord") < 0) {
+    if ((gpio_chip_open_ret = gpio_chip_open(&chip0, 0, "motord")) < 0) {
         log_fatal("gpio_chip_open: %s\n", strerror(errno));
         exit_status = 1;
         goto exit;
@@ -405,10 +438,10 @@ int main(void) {
 
     /* Open PWMs */
     if (
-        pwm_open(&pwm0, 0, 0) < 0 ||
-        pwm_open(&pwm1, 0, 1) < 0 ||
-        pwm_open(&pwm2, 0, 2) < 0 ||
-        pwm_open(&pwm3, 0, 3) < 0
+        (pwm0_open_ret = pwm_open(&pwm0, 0, 0)) < 0 ||
+        (pwm1_open_ret = pwm_open(&pwm1, 0, 1)) < 0 ||
+        (pwm2_open_ret = pwm_open(&pwm2, 0, 2)) < 0 ||
+        (pwm3_open_ret = pwm_open(&pwm3, 0, 3)) < 0
     ) {
         log_fatal("pwm_open: %s\n", strerror(errno));
         exit_status = 1;
@@ -433,7 +466,7 @@ int main(void) {
     }
 
     /* open fd for MOTORD_CMD_FIFO */
-    int cmd_fifo_fd = -1;
+    cmd_fifo_fd = -1;
     if ((cmd_fifo_fd = open(MOTORD_CMD_FIFO, O_RDONLY | O_NONBLOCK)) < 0) {
         log_fatal("open %s: %s\n", MOTORD_CMD_FIFO, strerror(errno));
         exit_status = 1;
@@ -448,7 +481,7 @@ int main(void) {
     }
 
     /* Gyro */
-    int mpu6050_fd = open(I2C_BUS, O_RDWR);
+    mpu6050_fd = open(I2C_BUS, O_RDWR);
     if (mpu6050_fd < 0) {
         log_fatal("open %s: %s\n", I2C_BUS, strerror(errno));
         exit_status = 1;
@@ -612,23 +645,35 @@ exit:
     move(CMD_STOP);
 
     /* close gpiochip */
-    gpio_chip_close(&chip0);
+    if (gpio_chip_open_ret >= 0)
+        gpio_chip_close(&chip0);
 
     /* close PWMs */
-    pwm_close(&pwm0);
-    pwm_close(&pwm1);
-    pwm_close(&pwm2);
-    pwm_close(&pwm3);
+    if (pwm0_open_ret >= 0)
+        pwm_close(&pwm0);
+
+    if (pwm1_open_ret >= 0)
+        pwm_close(&pwm1);
+
+    if (pwm2_open_ret >= 0)
+        pwm_close(&pwm2);
+
+    if (pwm3_open_ret >= 0)
+        pwm_close(&pwm3);
 
     /* sleep the MPU6050 */
-    wdata[0] = MPU6050_PWR_MGMT_1;
-    wdata[1] = MPU6050_SLEEP;
-    write(mpu6050_fd, wdata, 2);
+    if (mpu6050_fd >= 0) {
+        wdata[0] = MPU6050_PWR_MGMT_1;
+        wdata[1] = MPU6050_SLEEP;
+        write(mpu6050_fd, wdata, 2);
+        close(mpu6050_fd);
+    }
 
-    close(mpu6050_fd);
-    close(cmd_fifo_fd);
+    if (cmd_fifo_fd >= 0)
+        close(cmd_fifo_fd);
 
-    runtime_exit();
+    if (runtime_init_ret >= 0)
+        runtime_exit();
 
     return exit_status;
 }

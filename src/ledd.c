@@ -78,16 +78,19 @@ int parse_request(struct rgb_led *rgb_led, char *request) {
 
 int main(void) {
 
-    /* init vars */
-    int exit_status = 0;
-    int cmd_fifo_fd = -1;
-
     /* signal handling */
     signal(SIGINT, handler);
     signal(SIGTERM, handler);
     signal(SIGPIPE, SIG_IGN);
 
-    if (runtime_init("ledd", 0755) < 0) {
+    /* init vars */
+    int exit_status = 0;
+    int cmd_fifo_fd = -1;
+    
+    int runtime_init_ret = -1;
+    int gpio_chip_open_ret = -1;
+
+    if ((runtime_init_ret = runtime_init("ledd", 0755)) < 0) {
         log_fatal("Runtime failed: %s\n", strerror(errno));
         exit_status = 1;
         goto exit;
@@ -95,7 +98,7 @@ int main(void) {
     runtime_pid(getpid());
 
     /* open gpiochip */
-    if (gpio_chip_open(&chip0, 0, "ledd") < 0) {
+    if ((gpio_chip_open_ret = gpio_chip_open(&chip0, 0, "ledd")) < 0) {
         log_fatal("gpio_chip_open: %s\n", strerror(errno));
         exit_status = 1;
         goto exit;
@@ -151,9 +154,17 @@ int main(void) {
                 log_debug("B: %d\n", rgb_led.B);
 
                 /* start PWM for LED */
-                gpio_software_pwm(&chip0, R_GPIO, PWM_FREQ, (rgb_led.R / 255.0f) * 100.0f);
-                gpio_software_pwm(&chip0, G_GPIO, PWM_FREQ, (rgb_led.G / 255.0f) * 100.0f);
-                gpio_software_pwm(&chip0, B_GPIO, PWM_FREQ, (rgb_led.B / 255.0f) * 100.0f);
+                if (gpio_software_pwm(&chip0, R_GPIO, PWM_FREQ, (rgb_led.R / 255.0f) * 100.0f) < 0) {
+                    log_err("PWM FAILED ON R_GPIO (%d): %s\n", R_GPIO, strerror(errno));
+                }
+                    
+                if (gpio_software_pwm(&chip0, G_GPIO, PWM_FREQ, (rgb_led.G / 255.0f) * 100.0f) < 0) {
+                    log_err("PWM FAILED ON G_GPIO (%d): %s\n", G_GPIO, strerror(errno));
+                }
+
+                if (gpio_software_pwm(&chip0, B_GPIO, PWM_FREQ, (rgb_led.B / 255.0f) * 100.0f) < 0) {
+                    log_err("PWM FAILED ON B_GPIO (%d): %s\n", B_GPIO, strerror(errno));
+                }
             }
         }
         usleep(1);
@@ -164,9 +175,11 @@ exit:
     if (cmd_fifo_fd >= 0)
         close(cmd_fifo_fd);
 
-    gpio_chip_close(&chip0);
+    if (gpio_chip_open_ret >= 0)
+        gpio_chip_close(&chip0);
 
-    runtime_exit();
+    if (runtime_init_ret >= 0)
+        runtime_exit();
 
     return exit_status;
 }

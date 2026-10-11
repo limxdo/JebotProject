@@ -151,9 +151,28 @@ int main(void) {
     signal(SIGINT, handler);
     signal(SIGPIPE, SIG_IGN);
 
-    int exit_status = 0;
+    /* init vars */
+    ultrasonic_t front_right = {
+        .trig = RIGHT_TRIG,
+        .echo = RIGHT_ECHO,
+        .dist_file_path = "front_right",
+        .thread_id = 0,
+        .lock = PTHREAD_MUTEX_INITIALIZER
+    };
+    ultrasonic_t front_left = {
+        .trig = LEFT_TRIG,
+        .echo = LEFT_ECHO,
+        .dist_file_path = "front_left",
+        .thread_id = 0,
+        .lock = PTHREAD_MUTEX_INITIALIZER
+    };
 
-    if (runtime_init("ultrasonicd", 0755) < 0) {
+    int exit_status = 0;
+    int runtime_init_ret = -1;
+    int gpio_chip_open_ret = -1;
+
+
+    if ((runtime_init_ret = runtime_init("ultrasonicd", 0755)) < 0) {
         log_fatal("Runtime failed: %s\n", strerror(errno));
         exit_status = 1;
         goto exit;
@@ -170,9 +189,10 @@ int main(void) {
         motord_pid = -1;
     }
 
-    if (gpio_chip_open(&chip0, 0, "ultrasonicd") < 0) {
+    if ((gpio_chip_open_ret = gpio_chip_open(&chip0, 0, "ultrasonicd")) < 0) {
         log_fatal("gpio_chip_open: %s\n", strerror(errno));
-        return 1;
+        exit_status = 1;
+        goto exit;
     }
 
     /* setup lines */
@@ -188,20 +208,6 @@ int main(void) {
         goto exit;
     }
 
-
-    /* ultrasonics */
-    ultrasonic_t front_right = {
-        .trig = RIGHT_TRIG,
-        .echo = RIGHT_ECHO,
-        .dist_file_path = "front_right",
-        .lock = PTHREAD_MUTEX_INITIALIZER
-    };
-    ultrasonic_t front_left = {
-        .trig = LEFT_TRIG,
-        .echo = LEFT_ECHO,
-        .dist_file_path = "front_left",
-        .lock = PTHREAD_MUTEX_INITIALIZER
-    };
 
     pthread_create(&front_right.thread_id, NULL, ultrasonic_thread_func, &front_right);
     pthread_create(&front_left.thread_id, NULL, ultrasonic_thread_func, &front_left);
@@ -283,12 +289,17 @@ int main(void) {
     }
     
 exit:
-    pthread_join(front_right.thread_id, NULL);
-    pthread_join(front_left.thread_id, NULL);
+    if (front_right.thread_id != 0)
+        pthread_join(front_right.thread_id, NULL);
 
-    gpio_chip_close(&chip0);
+    if (front_left.thread_id != 0)
+        pthread_join(front_left.thread_id, NULL);
 
-    runtime_exit();
+    if (gpio_chip_open_ret >= 0)
+        gpio_chip_close(&chip0);
+
+    if (runtime_init_ret >= 0)
+        runtime_exit();
 
     if (motord_pid > 0) // important! check pid before send signal
         kill(motord_pid, SIGUSR2); // unblock motord before exit

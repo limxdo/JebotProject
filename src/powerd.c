@@ -289,14 +289,26 @@ void handler(int signum) {
 
 int main(void) {
 
-    int exit_status = 0;
-
     signal(SIGINT, handler);
     signal(SIGTERM, handler);
 
+
+    /* init vars */
+    int exit_status = 0;
+
+    struct ina219 ina219 = {
+        .i2c_fd = -1
+    };
+
+    struct x1201 x1201 = {
+        .i2c_fd = -1
+    };
+
+    int runtime_init_ret = -1;
+    int gpio_chip_open_ret = -1;
     
     /* runtime setup */
-    if (runtime_init("powerd", 0755) < 0) {
+    if ((runtime_init_ret = runtime_init("powerd", 0755)) < 0) {
         log_fatal("Runtime failed: %s\n", strerror(errno));
         exit_status = 1;
         goto exit;
@@ -304,7 +316,7 @@ int main(void) {
     runtime_pid(getpid());
 
     /* gpio */
-    if (gpio_chip_open(&chip0, 0, "powerd") < 0) {
+    if ((gpio_chip_open_ret = gpio_chip_open(&chip0, 0, "powerd")) < 0) {
         log_fatal("gpio_chip_open: %s\n", strerror(errno));
         exit_status = 1;
         goto exit;
@@ -315,15 +327,14 @@ int main(void) {
         exit_status = 1;
         goto exit;
     }
-    if (gpio_claim_output(&chip0, X1201_CHARGING_CTRL_GPIO, 0, 0)/* enable charging by default */) {
+
+    if (gpio_claim_output(&chip0, X1201_CHARGING_CTRL_GPIO, 0, 0/* enable charging by default */) < 0) {
         log_fatal("gpio_claim_output: %s\n", strerror(errno));
         exit_status = 1;
         goto exit;
     }
 
     /* INA219 */ 
-    struct ina219 ina219 = {0};
-
     ina219.i2c_fd = open(I2C_BUS, O_RDWR);
     if (ina219.i2c_fd < 0) {
         log_fatal("open %s (%s): %s\n", I2C_BUS, "INA219", strerror(errno));
@@ -352,8 +363,6 @@ int main(void) {
 
 
     /* X1201 */
-    struct x1201 x1201 = {0};
-
     x1201.i2c_fd = open(I2C_BUS, O_RDWR);
 
     if (x1201.i2c_fd < 0) {
@@ -371,6 +380,7 @@ int main(void) {
     /* X1201 runtime */
     runtime_mkdir(X1201_RUNTIME, 0755);
 
+
     while (running) {
         ina219_get_all(&ina219);
         ina219_write_values(&ina219);
@@ -378,16 +388,21 @@ int main(void) {
         x1201_get_all(&x1201);
         x1201_write_values(&x1201);
 
-        usleep(1);
+        usleep(5000);
     }
 
 exit:
-    close(ina219.i2c_fd);
-    close(x1201.i2c_fd);
+    if (ina219.i2c_fd >= 0)
+        close(ina219.i2c_fd);
 
-    gpio_chip_close(&chip0);
+    if (x1201.i2c_fd >= 0)
+        close(x1201.i2c_fd);
 
-    runtime_exit();
+    if (gpio_chip_open_ret >= 0)
+        gpio_chip_close(&chip0);
+
+    if (runtime_init_ret >= 0)
+        runtime_exit();
 
     return exit_status;
 }
