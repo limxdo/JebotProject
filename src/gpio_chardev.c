@@ -266,8 +266,8 @@ static void* software_pwm_thread_func(void *arg) {
 
 int gpio_software_pwm(gpio_chip_t *chip, int gpio, uint32_t freq_hz, float duty_cycle_percent) {
     if (
-        (!chip || chip->chip_fd < 0 || !(chip->lines[gpio].claimed && chip->lines[gpio].flags & GPIOHANDLE_REQUEST_OUTPUT)) ||
         (gpio < 0 || gpio >= GPIOHANDLES_MAX) ||
+        (!chip || chip->chip_fd < 0 || !(chip->lines[gpio].claimed && chip->lines[gpio].flags & GPIOHANDLE_REQUEST_OUTPUT)) ||
         (duty_cycle_percent < 0.0f || duty_cycle_percent > 100.0f)
     ) {
         errno = EINVAL;
