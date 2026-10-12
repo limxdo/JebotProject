@@ -92,27 +92,35 @@ struct ina219 {
     float power_W;
 };
 
-void ina219_set_config(int fd, uint16_t config) {
+int ina219_set_config(int fd, uint16_t config) {
     uint8_t buf[3] = {
         INA219_CONFIG_REG,
         (config >> 8) & 0xFF,
         config & 0xFF
     };
 
-    write(fd, buf, 3);
+    /* i2c check */
+    if (write(fd, buf, 3) < 0)
+        return -1;
+
+    return 0;
 }
 
-void ina219_set_calibration(int fd, uint16_t cal) { 
+int ina219_set_calibration(int fd, uint16_t cal) { 
     uint8_t buf[3] = {
         INA219_CAL_REG,
         (cal >> 8) & 0xFF,
         cal & 0xFF
     };
 
-    write(fd, buf, 3);
+    /* i2c check */
+    if (write(fd, buf, 3) < 0)
+        return -1;
+
+    return 0;
 }
 
-float ina219_get_vshunt(int fd) {
+int ina219_get_vshunt(int fd, float *out) {
     /*
      * 1 bit = 10 uV
      *
@@ -124,14 +132,22 @@ float ina219_get_vshunt(int fd) {
     uint8_t reg = INA219_VSHUNT_REG;
     uint8_t buf[2];
 
-    write(fd, &reg, 1);
-    read(fd, buf, 2);
+    /* i2c check */
+    if (
+        write(fd, &reg, 1) < 0 ||
+        read(fd, buf, 2) < 0
+    ) {
+        return -1;
+    }
+
 
     int16_t vshunt_raw = (int16_t)((buf[0] << 8) | buf[1]);
-    return vshunt_raw * 0.01; // mV
+    *out = vshunt_raw * 0.01; // mV
+
+    return 0;
 }
 
-float ina219_get_vbus(int fd) {
+int ina219_get_vbus(int fd, float *out) {
     /*
      * 1 bit = 4 mV
      *
@@ -144,15 +160,22 @@ float ina219_get_vbus(int fd) {
     uint8_t reg = INA219_VBUS_REG;
     uint8_t buf[2];
 
-    write(fd, &reg, 1);
-    read(fd, buf, 2);
+    if (
+        write(fd, &reg, 1) < 0 ||
+        read(fd, buf, 2) < 0
+    ) {
+        return -1;
+    }
+
 
     uint16_t vbus_raw = (uint16_t)((buf[0] << 8) | buf[1]);
     vbus_raw = vbus_raw >> 3;
-    return vbus_raw * 0.004; // V
+    *out = vbus_raw * 0.004; // V
+
+    return 0;
 }
 
-float ina219_get_current(int fd, float lsb) {
+int ina219_get_current(int fd, float lsb, float *out) {
     /*
      * current_A = raw * Current_LSB
      */
@@ -160,14 +183,21 @@ float ina219_get_current(int fd, float lsb) {
     uint8_t reg = INA219_CURRENT_REG;
     uint8_t buf[2];
 
-    write(fd, &reg, 1);
-    read(fd, buf, 2);
+    if (
+        write(fd, &reg, 1) < 0 ||
+        read(fd, buf, 2) < 0
+    ) {
+        return -1;
+    }
+
 
     int16_t current_raw = (int16_t)((buf[0] << 8) | buf[1]);
-    return current_raw * lsb;
+    *out = current_raw * lsb; // A
+
+    return 0;
 }
 
-float ina219_get_power(int fd, float lsb) {
+int ina219_get_power(int fd, float lsb, float *out) {
     /*
      * power_W = raw * Power_LSB
      */
@@ -175,32 +205,17 @@ float ina219_get_power(int fd, float lsb) {
     uint8_t reg = INA219_POWER_REG;
     uint8_t buf[2];
 
-    write(fd, &reg, 1);
-    read(fd, buf, 2);
+    if (
+        write(fd, &reg, 1) < 0 ||
+        read(fd, buf, 2) < 0
+    ) {
+        return -1;
+    }
 
     int16_t power_raw = (int16_t)((buf[0] << 8) | buf[1]);
-    return power_raw * lsb;
-}
+    *out = power_raw * lsb; // W
 
-void ina219_get_all(struct ina219 *ina) {
-    ina->vshunt_mV = ina219_get_vshunt(ina->i2c_fd);
-    ina->vbus_V    = ina219_get_vbus(ina->i2c_fd);
-    ina->current_A = ina219_get_current(ina->i2c_fd, ina->current_lsb);
-    ina->power_W   = ina219_get_power(ina->i2c_fd, ina->power_lsb);
-}
-
-void ina219_write_values(struct ina219 *ina) {
-    /* Vshunt */
-    runtime_write_atomic(INA219_VSHUNT_PATH, 0644, "%.3f\n", ina->vshunt_mV);
-
-    /* Vbus */
-    runtime_write_atomic(INA219_VBUS_PATH, 0644, "%.3f\n", ina->vbus_V);
-
-    /* Current */
-    runtime_write_atomic(INA219_CURRENT_PATH, 0644, "%.4f\n", ina->current_A);
-
-    /* Power */
-    runtime_write_atomic(INA219_POWER_PATH, 0644, "%.4f\n", ina->power_W);
+    return 0;
 }
 
 
@@ -223,10 +238,10 @@ struct x1201 {
 
     float voltage_V;
     float capacity;
-    bool charging;
+    int8_t charging;
 };
 
-float x1201_get_capacity(int fd) {
+int x1201_get_capacity(int fd, float *out) {
     /*
      * capacity = capacity_raw / 256.0
      */
@@ -235,17 +250,23 @@ float x1201_get_capacity(int fd) {
     uint8_t buf[2];
     uint16_t capacity_raw;
 
-    write(fd, &reg, 1);
-    read(fd, &buf, 2);
+    if (
+        write(fd, &reg, 1) < 0 ||
+        read(fd, buf, 2) < 0
+    ) {
+        return -1;
+    }
 
     capacity_raw = (buf[0] << 8) | buf[1];
     
     float capacity = capacity_raw / 256.0;
 
-    return capacity > 100 ? 100 : capacity;
+    *out = capacity > 100 ? 100 : capacity;
+
+    return 0;
 }
 
-float x1201_get_voltage(int fd) {
+int x1201_get_voltage(int fd, float *out) {
     /*
      * voltage_V = voltage_raw * 1.25 / 1000.0 / 16.0
      */
@@ -254,31 +275,20 @@ float x1201_get_voltage(int fd) {
     uint8_t buf[2];
     uint16_t voltage_raw;
 
-    write(fd, &reg, 1);
-    read(fd, &buf, 2);
+    if (
+        write(fd, &reg, 1) < 0 ||
+        read(fd, buf, 2) < 0
+    ) {
+        return -1;
+    }
 
     voltage_raw = (buf[0] << 8) | buf[1];
 
     float voltage_V = voltage_raw * 1.25 / 1000.0 / 16.0;
 
-    return voltage_V;
-}
+    *out = voltage_V;
 
-void x1201_get_all(struct x1201 *hat) {
-    hat->voltage_V = x1201_get_voltage(hat->i2c_fd);
-    hat->capacity = x1201_get_capacity(hat->i2c_fd);
-    hat->charging = gpio_read(&chip0, X1201_POWER_LOSS_GPIO);
-}
-
-void x1201_write_values(struct x1201 *hat) {
-    /* Voltage */
-    runtime_write_atomic(X1201_VOLTAGE_PATH, 0644, "%.3f\n", hat->voltage_V);
-
-    /* Capacity */
-    runtime_write_atomic(X1201_CAPACITY_PATH, 0644, "%.2f\n", hat->capacity);
-
-    /* Charging */
-    runtime_write_atomic(X1201_CHARGING_PATH, 0644, "%d\n", hat->charging);
+    return 0;
 }
 
 
@@ -291,7 +301,6 @@ int main(void) {
 
     signal(SIGINT, handler);
     signal(SIGTERM, handler);
-
 
     /* init vars */
     int exit_status = 0;
@@ -382,11 +391,57 @@ int main(void) {
 
 
     while (running) {
-        ina219_get_all(&ina219);
-        ina219_write_values(&ina219);
+        /* INA219 */
+        if (ina219_get_vshunt(ina219.i2c_fd, &ina219.vshunt_mV) < 0) {
+            log_err("i2c failed: %s\n", strerror(errno));
+            runtime_write_atomic(INA219_VSHUNT_PATH, 0644, "error\n");
+        } else {
+            runtime_write_atomic(INA219_VSHUNT_PATH, 0644, "%.3f\n", ina219.vshunt_mV);
+        }
 
-        x1201_get_all(&x1201);
-        x1201_write_values(&x1201);
+        if (ina219_get_vbus(ina219.i2c_fd, &ina219.vbus_V) < 0) {
+            log_err("i2c failed: %s\n", strerror(errno));
+            runtime_write_atomic(INA219_VBUS_PATH, 0644, "error\n");
+        } else {
+            runtime_write_atomic(INA219_VBUS_PATH, 0644, "%.3f\n", ina219.vbus_V);
+        }
+
+        if (ina219_get_current(ina219.i2c_fd, ina219.current_lsb, &ina219.current_A) < 0) {
+            log_err("i2c failed: %s\n", strerror(errno));
+            runtime_write_atomic(INA219_CURRENT_PATH, 0644, "error\n");
+        } else {
+            runtime_write_atomic(INA219_CURRENT_PATH, 0644, "%.4f\n", ina219.current_A);
+        }
+
+        if (ina219_get_power(ina219.i2c_fd, ina219.power_lsb, &ina219.power_W) < 0) {
+            log_err("i2c failed: %s\n", strerror(errno));
+            runtime_write_atomic(INA219_POWER_PATH, 0644, "error\n");
+        } else {
+            runtime_write_atomic(INA219_POWER_PATH, 0644, "%.4f\n", ina219.power_W);
+        }
+
+
+        /* X1201 */
+        if (x1201_get_voltage(x1201.i2c_fd, &x1201.voltage_V) < 0) {
+            log_err("i2c failed: %s\n", strerror(errno));
+            runtime_write_atomic(X1201_VOLTAGE_PATH, 0644, "error\n");
+        } else {
+            runtime_write_atomic(X1201_VOLTAGE_PATH, 0644, "%.3f\n", x1201.voltage_V);
+        }
+
+        if (x1201_get_capacity(x1201.i2c_fd, &x1201.capacity) < 0) {
+            log_err("i2c failed: %s\n", strerror(errno));
+            runtime_write_atomic(X1201_CAPACITY_PATH, 0644, "error\n");
+        } else {
+            runtime_write_atomic(X1201_CAPACITY_PATH, 0644, "%.2f\n", x1201.capacity);
+        }
+
+        if ((x1201.charging = gpio_read(&chip0, X1201_POWER_LOSS_GPIO)) < 0) {
+            log_err("gpio failed: %s\n", strerror(errno));
+            runtime_write_atomic(X1201_CHARGING_PATH, 0644, "error\n");
+        } else {
+            runtime_write_atomic(X1201_CHARGING_PATH, 0644, "%d\n", x1201.charging);
+        }
 
         usleep(5000);
     }

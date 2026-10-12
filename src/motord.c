@@ -53,9 +53,10 @@ uint64_t right_enc_a_counter = 0;
 uint64_t target_pulses = 0;
 
 
-/* MPU6050 (Gyro) */
+/* I2C */
 #define I2C_BUS "/dev/i2c-1"
 
+/* MPU6050 (Gyro) */
 #define MPU6050_ADDR 0x68
 
 #define MPU6050_PWR_MGMT_1  0x6B
@@ -347,7 +348,10 @@ void reply(reply_t reply, long moved) {
         strcpy(msg, "SUCCESS\n");
         break;
     case REPLY_FAILED:
-        strcpy(msg, "FAILED\n");
+        if (moved)
+            snprintf(msg, sizeof(msg), "FAILED %ld\n", moved);
+        else
+            strcpy(msg, "FAILED\n");
         break;
     case REPLY_SKIPPED:
         if (moved)
@@ -497,8 +501,9 @@ int main(void) {
 
     /* Starting the daemon */
     char request[256];
-    ssize_t rn;
-    long moved;
+    ssize_t rn = -1;
+    long moved = 0;
+    int err = 0;
 
     int move_ret = -1;
     struct request_args request_args;
@@ -509,11 +514,19 @@ int main(void) {
     /* wakeup the MPU6050 */
     wdata[0] = MPU6050_PWR_MGMT_1;
     wdata[1] = MPU6050_WAKEUP;
-    write(mpu6050_fd, wdata, 2);
+    if (write(mpu6050_fd, wdata, 2) < 0) {
+        log_fatal("mpu6050 wakeup failed: i2c failed: %s\n", strerror(errno));
+        exit_status = 1;
+        goto exit;
+    }
 
     wdata[0] = MPU6050_GYRO_CONFIG;
     wdata[1] = GYRO_CONFIG;
-    write(mpu6050_fd, wdata, 2);
+    if (write(mpu6050_fd, wdata, 2) < 0) {
+        log_fatal("mpu6050 config failed: i2c failed: %s\n", strerror(errno));
+        exit_status = 1;
+        goto exit;
+    }
 
     /* gyro_z */
     float dt = 0.0f;
@@ -528,17 +541,33 @@ int main(void) {
         last_time = now;
 
         /* get gyro_z */
-        write(mpu6050_fd, &reg, 1);
-        read(mpu6050_fd, rdata, 2);
-        gyro_z_raw = (rdata[0] << 8) | rdata[1];
-        dps_z = (gyro_z_raw - GYRO_BAIS_Z) / 131.0f;
-        yaw += fabsf(dps_z * dt);
+        if (target_angle) {
+            /* check if i2c failed */
+            if (write(mpu6050_fd, &reg, 1) < 0 || read(mpu6050_fd, rdata, 2) < 0) {
+                err = errno;
+                log_err("i2c failed: %s\n", strerror(errno));
 
+                moved = yaw;
+                log_err("EXECUTION FAILED (%ld angle turned): %s\n", moved, strerror(err));
+                move(CMD_STOP);
+                if (request_args.reply)
+                    reply(REPLY_FAILED, moved);
+
+                target_angle = 0;
+                yaw = 0.0f;
+            }
+            else {
+                gyro_z_raw = (rdata[0] << 8) | rdata[1];
+                dps_z = (gyro_z_raw - GYRO_BAIS_Z) / 131.0f;
+                yaw += fabsf(dps_z * dt);
+            }
+        }
+        
         /* if exists command, check if command finished */
         // if (target_pulses && ((right_enc_a_counter + left_enc_a_counter) / 2 >= target_pulses)) {
         if (target_pulses && (right_enc_a_counter >= target_pulses && left_enc_a_counter >= target_pulses)) {
             move(CMD_STOP);
-            log_info("EXECUTION: SUCCESS\n");
+            log_info("EXECUTION SUCCESS\n");
             /* if need to reply */
             if (request_args.reply)
                 reply(REPLY_SUCCESS, 0);
@@ -548,7 +577,7 @@ int main(void) {
         else if (request_args.cmd == CMD_MOVE_FORWARD && blocked) { // block the command if already executing
             moved = ((right_enc_a_counter + left_enc_a_counter) / 2 / PULSES_PER_CM);
             move(CMD_STOP);
-            log_info("EXECUTION: BLOCKED (%ld cm moved)\n", moved);
+            log_info("EXECUTION BLOCKED (%ld cm moved)\n", moved);
             if (request_args.reply)
                 reply(REPLY_BLOCKED, moved);
             /* reset values to avoid print loop */
@@ -556,7 +585,7 @@ int main(void) {
         }
         else if (target_angle && (yaw >= target_angle)) {
             move(CMD_STOP);
-            log_info("EXECUTION: SUCCESS\n");
+            log_info("EXECUTION SUCCESS\n");
             if (request_args.reply)
                 reply(REPLY_SUCCESS, 0);
             parse_cmd(&request_args, NULL);
@@ -570,20 +599,20 @@ int main(void) {
             if (target_pulses || target_angle) {
                 if (target_pulses) {
                     moved = ((right_enc_a_counter + left_enc_a_counter) / 2 / PULSES_PER_CM);
-                    log_info("EXECUTION: SKIPPED (%ld cm moved)\n", moved);
+                    log_info("EXECUTION SKIPPED (%ld cm moved)\n", moved);
                     if (request_args.reply)
                         reply(REPLY_SKIPPED, moved);
                     move(CMD_STOP);
                 }
                 else if (target_angle){
                     moved = yaw;
-                    log_info("EXECUTION: SKIPPED (%ld angle turned)\n", moved);
+                    log_info("EXECUTION SKIPPED (%ld angle turned)\n", moved);
                     if (request_args.reply)
                         reply(REPLY_SKIPPED, moved);
                     move(CMD_STOP);
                 }
                 else {
-                    log_info("EXECUTION: SKIPPED\n");
+                    log_info("EXECUTION SKIPPED\n");
                     if (request_args.reply)
                         reply(REPLY_SKIPPED, 0);
                     move(CMD_STOP);
@@ -609,7 +638,7 @@ int main(void) {
                 parse_cmd(&request_args, NULL);
             }
             else if (request_args.cmd == CMD_MOVE_FORWARD && blocked) { // block command before executing
-                log_info("EXECUTION: BLOCKED\n");
+                log_info("EXECUTION BLOCKED\n");
                 if (request_args.reply) {
                     reply(REPLY_BLOCKED, 0);
                 }
@@ -624,13 +653,13 @@ int main(void) {
                     move_ret = move(request_args.cmd, -1);
 
                 if (move_ret < 0) {
-                    log_err("EXECUTION: FAILED (%s)\n", strerror(errno));
+                    log_err("EXECUTION FAILED: %s\n", strerror(errno));
                     move(CMD_STOP);
                     if (request_args.reply)
                         reply(REPLY_FAILED, 0);
                 }
                 else if (request_args.cmd == CMD_STOP) {
-                    log_info("EXECUTION: SUCCESS\n");
+                    log_info("EXECUTION SUCCESS\n");
                     if (request_args.reply)
                         reply(REPLY_SUCCESS, 0);
                 }
@@ -665,7 +694,9 @@ exit:
     if (mpu6050_fd >= 0) {
         wdata[0] = MPU6050_PWR_MGMT_1;
         wdata[1] = MPU6050_SLEEP;
-        write(mpu6050_fd, wdata, 2);
+        if (write(mpu6050_fd, wdata, 2) < 0) {
+            log_err("failed to sleep mpu6050: i2c failed: %s\n", strerror(errno));
+        }
         close(mpu6050_fd);
     }
 
