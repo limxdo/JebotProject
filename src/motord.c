@@ -216,8 +216,8 @@ int move(cmd_t cmd, ...) {
      * Two motors per driver (left/right sides).
      * R_EN and L_EN are tied to 3.3V (always enabled).
      * Control via RPWM (forward) and LPWM (backward).
-     * Encoder feedback implemented (distance & straight line).
-     * Gyro not yet integrated (planned for tank turn).
+     * Encoder feedback implemented (distance).
+     * Gyro integrated for precise turning (MPU6050, yaw-based).
      */
 
     va_list args;
@@ -314,10 +314,6 @@ int move(cmd_t cmd, ...) {
         status = pwm_enable(&LEFT_FORWARD, false);
         status = pwm_enable(&LEFT_BACKWARD, false);
 
-        right_enc_a_counter = 0;
-        left_enc_a_counter = 0;
-        target_pulses = 0;
-        target_angle = 0;
         break;
     
     default:
@@ -402,6 +398,7 @@ int main(void) {
     /* ignore signals */
     signal(SIGPIPE, SIG_IGN);
 
+    /* init vars */
     int cmd_fifo_fd = -1;
     int exit_status = 0;
     int mpu6050_fd = -1;
@@ -545,16 +542,19 @@ int main(void) {
             /* check if i2c failed */
             if (write(mpu6050_fd, &reg, 1) < 0 || read(mpu6050_fd, rdata, 2) < 0) {
                 err = errno;
-                log_err("i2c failed: %s\n", strerror(errno));
 
                 moved = yaw;
-                log_err("EXECUTION FAILED (%ld angle turned): %s\n", moved, strerror(err));
                 move(CMD_STOP);
+
+                if (!moved)
+                    log_err("EXECUTION FAILED: i2c: %s\n", strerror(err));
+                else
+                    log_err("EXECUTION FAILED (%ld degrees turned): i2c: %s\n", moved, strerror(err));
+
                 if (request_args.reply)
                     reply(REPLY_FAILED, moved);
 
-                target_angle = 0;
-                yaw = 0.0f;
+                parse_cmd(&request_args, NULL);
             }
             else {
                 gyro_z_raw = (rdata[0] << 8) | rdata[1];
@@ -606,7 +606,7 @@ int main(void) {
                 }
                 else if (target_angle){
                     moved = yaw;
-                    log_info("EXECUTION SKIPPED (%ld angle turned)\n", moved);
+                    log_info("EXECUTION SKIPPED (%ld degrees turned)\n", moved);
                     if (request_args.reply)
                         reply(REPLY_SKIPPED, moved);
                     move(CMD_STOP);
@@ -650,7 +650,7 @@ int main(void) {
                 else if (request_args.cmd == CMD_TURN_RIGHT || request_args.cmd == CMD_TURN_LEFT)
                     move_ret = move(request_args.cmd, request_args.angle);
                 else
-                    move_ret = move(request_args.cmd, -1);
+                    move_ret = move(request_args.cmd);
 
                 if (move_ret < 0) {
                     log_err("EXECUTION FAILED: %s\n", strerror(errno));
