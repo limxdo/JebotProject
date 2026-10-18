@@ -278,7 +278,7 @@ while running:
             vector = "up"  # default value
 
         if goal_point and not child_pid: # do not move while speaking
-            while ((now_point[0] != goal_point[0]) or (now_point[1] != goal_point[1])) and running: 
+            while goal_point and ((now_point[0] != goal_point[0]) or (now_point[1] != goal_point[1])) and running: 
                 way = control.command(lst_points=control.path(Map=np.array(lst_map),start_point=now_point,end_point=goal_point),vector=vector)
                 keys = {MOVE_FORWARD:"MOVE_FORWARD",TURN_LEFT:"TURN_LEFT",TURN_RIGHT:"TURN_RIGHT"} # dict keys for convert each num with it command
 
@@ -286,48 +286,56 @@ while running:
                     print("there is no way (you can ignore it)",flush=True)
                     break
 
-                for step in way: # loop to send commands from list ways
+                command_ptr = 0 # pointer to current command in the robots
+                while command_ptr != len(way): # loop to send commands from list ways
                         
                     if not running: # if program takes a SIGTERM , it will off
                         break
                         
-                    reply = send(command=step) # send command & get replay
+                    reply = send(command=way[command_ptr]) # send command & get replay
                     reply = reply.split()
 
-                    # handel blocked reply
-                    if reply[0] == "BLOCKED": 
-                        dct_near_points = { # dict for connect each vector with it point in near points
-                            "down" : (now_point[0]+1,now_point[1]), 
-                            "right" : (now_point[0],now_point[1]+1), 
-                            "up" : (now_point[0]-1,now_point[1]), 
-                            "left" : (now_point[0],now_point[1]-1)
-                        } 
+                    match reply[0]:
+                        case "SUCCESS":
+                            now_point,vector = current_point(last_point=now_point,vector=vector,last_command=keys[way[command_ptr]])
+                            command_ptr += 1
 
-                        if len(reply) == 1: # check if blocked without cm
-                            blocked_point = dct_near_points[vector] # get near blocked point
-                            lst_map[blocked_point[0]][blocked_point[1]]= 1 # block near point
+                        case "BLOCKED": # handel blocked reply
+                            dct_near_points = { # dict for connect each vector with it point in near points
+                                "down" : (now_point[0]+1,now_point[1]), 
+                                "right" : (now_point[0],now_point[1]+1), 
+                                "up" : (now_point[0]-1,now_point[1]), 
+                                "left" : (now_point[0],now_point[1]-1)
+                            } 
+
+                            if len(reply) == 1: # check if blocked without cm
+                                blocked_point = dct_near_points[vector] # get near blocked point
+                                lst_map[blocked_point[0]][blocked_point[1]]= 1 # block near point
+                                    
+                                break # break to recreat a new way with new changes
                                 
-                            break # break to recreat a new way with new changes
-                            
-                        else: # check if blocked within cm (in this case, we will go back as far as the reply's distance allows)
-                            send(command=MOVE_BACKWARD,distance=reply[1]) # go back
+                            else: # check if blocked within cm (in this case, we will go back as far as the reply's distance allows)
+                                send(command=MOVE_BACKWARD,distance=reply[1]) # go back
 
-                            blocked_near_point = dct_near_points[vector] # get near blocked point
+                                blocked_near_point = dct_near_points[vector] # get near blocked point
 
-                            dct_far_points = { # dict for connect each vector with it point in far points
-                                "down" : (blocked_near_point[0]+1,blocked_near_point[1]), 
-                                "right" : (blocked_near_point[0],blocked_near_point[1]+1), 
-                                "up" : (blocked_near_point[0]-1,blocked_near_point[1]), 
-                                "left" : (blocked_near_point[0],blocked_near_point[1]-1)
-                            }
+                                dct_far_points = { # dict for connect each vector with it point in far points
+                                    "down" : (blocked_near_point[0]+1,blocked_near_point[1]), 
+                                    "right" : (blocked_near_point[0],blocked_near_point[1]+1), 
+                                    "up" : (blocked_near_point[0]-1,blocked_near_point[1]), 
+                                    "left" : (blocked_near_point[0],blocked_near_point[1]-1)
+                                }
 
-                            blocked_far_point = dct_far_points[vector] # get far blocked point
-                            lst_map[blocked_near_point[0]][blocked_near_point[1]] = 1 # block near point
-                            lst_map[blocked_far_point[0]][blocked_far_point[1]]= 1 # block far point
-                            break # break to recreat a new way with new changes
-
-                    
-                    now_point,vector = current_point(last_point=now_point,vector=vector,last_command=keys[step])
+                                blocked_far_point = dct_far_points[vector] # get far blocked point
+                                lst_map[blocked_near_point[0]][blocked_near_point[1]] = 1 # block near point
+                                lst_map[blocked_far_point[0]][blocked_far_point[1]]= 1 # block far point
+                                break # break to recreat a new way with new changes
+                        
+                        case "FAILED":
+                            goal_point = None
+                            print(f"motord fatal error: {' '.join(reply)}", flush=True, file=sys.stderr)
+                            # error sound will added later
+                            break
             else:
                 goal_point = None # after arriving at the goal_point , change gaol_points to None
 
