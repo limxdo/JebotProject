@@ -3,6 +3,10 @@
 import sys
 sys.dont_write_bytecode = True
 
+# remove script's directory so `import jebot` finds the package, not 'jebot.py' file
+# (jebot.py shadows jebot/ otherwise)
+del sys.path[0]
+
 import jebot.stt as stt
 import os
 import signal

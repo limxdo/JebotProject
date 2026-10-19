@@ -4,6 +4,10 @@ import sys
 # remove python's cache & bytecode
 sys.dont_write_bytecode = True
 
+# remove script's directory so `import jebot` finds the package, not this file
+# (jebot.py shadows jebot/ otherwise)
+del sys.path[0]
+
 import os
 import signal
 import json
