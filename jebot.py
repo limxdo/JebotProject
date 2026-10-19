@@ -84,6 +84,9 @@ try:
 
     # led control using ledd
     def set_led(r:int, g:int, b:int):
+        if (r < 0 or r > 255) or (g < 0 or g > 255) or (b < 0 or b > 255):
+            raise ValueError("values must be >= 0 and <= 255")
+
         with open(LEDD_CMD_FIFO, 'w') as f:
             f.write(f"{r} {g} {b}")
 
