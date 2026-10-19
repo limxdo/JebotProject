@@ -46,6 +46,10 @@ ULTRASONICD_FRONT_LEFT  = "/run/jebot/ultrasonicd/front_left"
 # ledd
 LEDD_CMD_FIFO = "/run/jebot/ledd/cmd"
 
+# led config
+LED_END_TIME = 10 # same sttd listen time after detect WAKEUP
+
+
 # sttd
 STTD_TEXT_FILE  = "/run/jebot/sttd/text"
 STTD_LANG_FILE  = "/run/jebot/sttd/lang"
@@ -67,6 +71,8 @@ try:
     running = True # main loop condition
     child_pid = None
     user_cmd = None
+    led_start_time = 0
+    led_handled = False
 
     # signal handler
     def handler(signum, frame):
@@ -271,6 +277,13 @@ while running:
             current_lang = "en" # default
             print("get_current_lang: sttd error", flush=True, file=sys.stderr)
 
+        if led_start_time and led_start_time <= time.time():
+            print("led_start_time outed", flush=True)
+            if led_handled:
+                set_led(0, 0, 0)
+                led_handled = False
+                led_start_time = 0
+
         if user_cmd:
             print(f"user command: '{user_cmd}'", flush=True)
             if user_cmd in user_commands:
@@ -289,13 +302,30 @@ while running:
                         child_pid = None
 
                     child_pid = play_sound(sound)
+                    set_led(255, 255, 0) # temporary color
+                    led_handled = True
+                    led_start_time = 0
+                    print("led on '255 255 0'", flush=True)
+                else:
+                    print("there is no sound", flush=True)
+
             elif user_cmd == "WAKEUP":
-                pass # add action later
+                set_led(0, 255, 0)
+                led_handled = True
+                led_start_time = time.time() + LED_END_TIME
+                print("led on '0 255 0'", flush=True)
             else:
                 print(f"'{user_cmd}' not in user_commands", file=sys.stderr, flush=True)
 
-        # clean child process if finished
-        if child_pid and os.waitpid(child_pid, os.WNOHANG)[0]: child_pid = None
+        # clean child process if finished and close led if it on
+        if child_pid and os.waitpid(child_pid, os.WNOHANG)[0]:
+            child_pid = None
+            print("sound ended", flush=True)
+            if led_handled:
+                led_start_time = 0
+                set_led(0, 0 ,0)
+                led_handled = False
+                print("led off", flush=True)
 
         # if we dont take data from cache file we will use default value
         if not now_point:
