@@ -39,6 +39,7 @@ case "$1" in
         # copy files
         cp -f bin/* "$LIBEXEC_DIR"/
         cp -f python/stt/sttd.py "$LIBEXEC_DIR"/
+        cp -f jebot.py "$LIBEXEC_DIR"/
         chmod +x "$LIBEXEC_DIR"/*
 
         cp -f data/* "$SHARE_DIR"/
@@ -86,9 +87,9 @@ case "$1" in
         fi
 
         # systemd
-        cp -f systemd/jebot-*.service "$SYSTEMD_DIR"/
+        cp -f systemd/jebot*.service "$SYSTEMD_DIR"/
         systemctl daemon-reload
-        for service in "$SYSTEMD_DIR"/jebot-*.service; do
+        for service in "$SYSTEMD_DIR"/jebot*.service; do
             systemctl enable --now "$(basename $service)"
         done
         ;;
@@ -97,10 +98,10 @@ case "$1" in
         rm -rf "$SHARE_DIR"
         rm -rf "$PYTHON_VENV"
 
-        for service in "$SYSTEMD_DIR"/jebot-*.service; do
+        for service in "$SYSTEMD_DIR"/jebot*.service; do
             systemctl disable --now "$(basename $service)"
         done
-        rm -f "$SYSTEMD_DIR"/jebot-*.service
+        rm -f "$SYSTEMD_DIR"/jebot*.service
         systemctl daemon-reload
         ;;
     *)

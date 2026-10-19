@@ -1,0 +1,14 @@
+[Unit]
+Description=Jebot Logic Program
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/lib/jebot-venv/bin/python3 /usr/local/libexec/jebot/jebot.py
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
