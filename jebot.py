@@ -43,6 +43,9 @@ X1201_CAPACITY = "/run/powerd/x1201/capacity"
 ULTRASONICD_FRONT_RIGHT = "/run/jebot/ultrasonicd/front_right"
 ULTRASONICD_FRONT_LEFT  = "/run/jebot/ultrasonicd/front_left"
 
+# ledd
+LEDD_CMD_FIFO = "/run/jebot/ledd/cmd"
+
 # sttd
 STTD_TEXT_FILE  = "/run/jebot/sttd/text"
 STTD_LANG_FILE  = "/run/jebot/sttd/lang"
@@ -78,6 +81,11 @@ try:
     print("waiting for the daemons...", flush=True)
     time.sleep(3) # 3 seconds to aviod any problems
 
+
+    # led control using ledd
+    def set_led(r:int, g:int, b:int):
+        with open(LEDD_CMD_FIFO, 'w') as f:
+            f.write(f"{r} {g} {b}")
 
     # function to get user command from sttd
     def get_user_command():
