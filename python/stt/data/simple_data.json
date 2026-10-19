@@ -1,6 +1,6 @@
 {
     "en": {
-        "listen": "MAGIC_WORD",
+        "listen": "WAKEUP",
 
         "change your language": "CHANGE_LANG",
 
@@ -27,9 +27,9 @@
         "what the technology program programs": "TECH_PROGRAMS"
     },
     "ar": {
-        "استمع": "MAGIC_WORD",
-        "اسمع": "MAGIC_WORD",
-        "استمر": "MAGIC_WORD",
+        "استمع": "WAKEUP",
+        "اسمع": "WAKEUP",
+        "استمر": "WAKEUP",
 
         "غير لغتك": "CHANGE_LANG",
 

@@ -286,6 +286,8 @@ while running:
                         child_pid = None
 
                     child_pid = play_sound(sound)
+            elif user_cmd == "WAKEUP":
+                pass # add action later
             else:
                 print(f"'{user_cmd}' not in user_commands", file=sys.stderr, flush=True)
 

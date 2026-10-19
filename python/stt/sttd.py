@@ -114,7 +114,9 @@ while running:
         if isinstance(RandomText, str):
             print(f"RandomText: {RandomText}", flush=True)
             key = stt.simple(RandomText, data[Lang])
-            if key and data[Lang][key] == "MAGIC_WORD":
+            if key and data[Lang][key] == "WAKEUP":
+                print(data[Lang][key], flush=True)
+                write_text(f"{data[Lang][key]}\n")
                 print("listening", flush=True)
                 if Lang == "en":
                     text = stt.listen(Lang, 10, costom_words=custom_words_en)
