@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 
 import sys
-
 # remove python's cache & bytecode
 sys.dont_write_bytecode = True
 
 import os
 import signal
-from time import sleep
 import json
+import time
 import numpy as np
-import jebot.control as control # fake
+import jebot.control as control
+
 
 # Constants
 # jebot data paths
@@ -56,7 +56,10 @@ MOVE_BACKWARD = 4
 
 # setup, any exceptions based on 'Exception' here is fatal
 try:
+    # init vars
     running = True # main loop condition
+    child_pid = None
+    user_cmd = None
 
     # signal handler
     def handler(signum, frame):
@@ -66,6 +69,11 @@ try:
     signal.signal(signal.SIGINT, handler)
     signal.signal(signal.SIGTERM, handler)
     signal.signal(signal.SIGPIPE, signal.SIG_IGN)
+
+    # waiting the daemons to starting (when program run's in boot)
+    print("waiting for the daemons...", flush=True)
+    time.sleep(3) # 3 seconds to aviod any problems
+
 
     # function to get user command from sttd
     def get_user_command():
@@ -81,7 +89,7 @@ try:
             with open(STTD_TEXT_FILE, 'w') as f:
                 f.write("")
 
-        return cmd if cmd else None
+        return cmd
 
     def get_current_lang():
         with open(STTD_LANG_FILE, 'r') as f:
@@ -128,17 +136,14 @@ try:
 
     def send(command : int,distance=40,angel=90) -> str:
         """func will send to pipe file ((FIFO) on unix & (based-like)) the command to motord.c """
-        if os.path.exists(MOTORD_CMD_FIFO) and os.path.exists(MOTORD_REPLY_FIFO): 
-            keys_convertors = {MOVE_FORWARD:f"MOVE_FORWARD {distance} --reply",TURN_LEFT:f"TURN_LEFT {angel} --reply",TURN_RIGHT:f"TURN_RIGHT {angel} --reply",MOVE_BACKWARD:f"MOVE_BACKWARD {distance} --reply" } # var contain all command and their num
-            with open(MOTORD_CMD_FIFO,"w") as pipe: # open send pipe file
-                pipe.write(keys_convertors[command]) # write the command on the pipe
-            
-            with open(MOTORD_REPLY_FIFO,"r") as pipe: # open reply pipe file
-                replay = pipe.read() # read the reply
-                replay.strip() # remove \n from the reply
-                return replay
-        else:
-            print("error , pipes not exists.",file=sys.stderr,flush=True)
+        keys_convertors = {MOVE_FORWARD:f"MOVE_FORWARD {distance} --reply",TURN_LEFT:f"TURN_LEFT {angel} --reply",TURN_RIGHT:f"TURN_RIGHT {angel} --reply",MOVE_BACKWARD:f"MOVE_BACKWARD {distance} --reply" } # var contain all command and their num
+        with open(MOTORD_CMD_FIFO,"w") as pipe: # open send pipe file
+            pipe.write(keys_convertors[command]) # write the command on the pipe
+        
+        with open(MOTORD_REPLY_FIFO,"r") as pipe: # open reply pipe file
+            replay = pipe.read() # read the reply
+            replay.strip() # remove \n from the reply
+            return replay
 
     def current_point(last_point:list,vector:str,last_command:str) -> tuple:
         # list near point from our point var
@@ -217,9 +222,6 @@ try:
         os.mkdir(VAR_PATH, 0o755)
     os.chmod(VAR_PATH, 0o755)
 
-    # sound var
-    child_pid = None
-
     # The order of the vars here is important !!! 
     goal_point = None 
     now_point = None
@@ -241,19 +243,27 @@ except Exception as e:
 # main loop, any exceptions based on 'Exception' here just be print as error log
 while running:
     try:
-        current_lang = get_current_lang()
         sounds_path = BASE_SOUNDS_PATH + f"/{current_lang}"
-        user_cmd = get_user_command()
         lst_map = dct_map["maps"]["school_hall"].copy() # get map from map.json
 
+        try:
+            user_cmd = get_user_command()
+        except:
+            print("get_user_command: sttd error", flush=True, file=sys.stderr)
+        try:
+            current_lang = get_current_lang()
+        except:
+            current_lang = "en" # default
+            print("get_current_lang: sttd error", flush=True, file=sys.stderr)
+
         if user_cmd:
+            print(f"user command: '{user_cmd}'", flush=True)
             if user_cmd in user_commands:
-                print(f"user command: {user_cmd}", flush=True)
                 sound = user_commands[user_cmd]["sound"]
 
                 if not goal_point:
                     goal_point = user_commands[user_cmd]["point"]
-                    if goal_point:
+                    if isinstance(goal_point, str):
                         goal_point = dct_map["points"][goal_point]
 
                 if sound:
@@ -265,7 +275,7 @@ while running:
 
                     child_pid = play_sound(sound)
             else:
-                print(f"{user_cmd} not in user_commands", file=sys.stderr, flush=True)
+                print(f"'{user_cmd}' not in user_commands", file=sys.stderr, flush=True)
 
         # clean child process if finished
         if child_pid and os.waitpid(child_pid, os.WNOHANG)[0]: child_pid = None
@@ -292,7 +302,14 @@ while running:
                     if not running: # if program takes a SIGTERM , it will off
                         break
                         
-                    reply = send(command=way[command_ptr]) # send command & get replay
+                    try:
+                        reply = send(command=way[command_ptr]) # send command & get replay
+                    except Exception as e:
+                        print(f"motord error: {e}", flush=True, file=sys.stderr)
+                        goal_point = None
+                        # error sound will added later
+                        break
+
                     reply = reply.split()
 
                     match reply[0]:
@@ -339,6 +356,7 @@ while running:
             else:
                 goal_point = None # after arriving at the goal_point , change gaol_points to None
 
+        time.sleep(0.01)
     except Exception as e:
         print(f"error: {e}", file=sys.stderr, flush=True)
 
