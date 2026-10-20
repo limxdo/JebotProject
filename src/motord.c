@@ -23,7 +23,7 @@
 
 #define MOTORD_CMD_FIFO   MOTORD_RUNTIME_PATH "/cmd"
 #define MOTORD_REPLY_FIFO MOTORD_RUNTIME_PATH "/reply"
-#define MOTORD_STATE_FILE "/motors_state"
+#define MOTORD_STATE_FILE "motors_state"
 
 /* motors state */
 #define MOTORS_IDLE    "idle"
@@ -260,7 +260,7 @@ int move(cmd_t cmd, ...) {
             move(CMD_STOP);
         }
 
-        runtime_write_atomic(MOTORD_STATE_FILE, 0644, MOTORS_RUNNING);
+        runtime_write_atomic(MOTORD_STATE_FILE, 0644, MOTORS_RUNNING "\n");
         break;
 
     case CMD_MOVE_BACKWARD:
@@ -278,7 +278,7 @@ int move(cmd_t cmd, ...) {
             move(CMD_STOP);
         }
 
-        runtime_write_atomic(MOTORD_STATE_FILE, 0644, MOTORS_RUNNING);
+        runtime_write_atomic(MOTORD_STATE_FILE, 0644, MOTORS_RUNNING "\n");
         break;
 
     case CMD_TURN_RIGHT:
@@ -295,7 +295,7 @@ int move(cmd_t cmd, ...) {
             move(CMD_STOP);
         }
 
-        runtime_write_atomic(MOTORD_STATE_FILE, 0644, MOTORS_RUNNING);
+        runtime_write_atomic(MOTORD_STATE_FILE, 0644, MOTORS_RUNNING "\n");
         break;
 
     case CMD_TURN_LEFT:
@@ -312,7 +312,7 @@ int move(cmd_t cmd, ...) {
             move(CMD_STOP);
         }
 
-        runtime_write_atomic(MOTORD_STATE_FILE, 0644, MOTORS_RUNNING);
+        runtime_write_atomic(MOTORD_STATE_FILE, 0644, MOTORS_RUNNING "\n");
         break;
 
     case CMD_STOP:
@@ -322,7 +322,7 @@ int move(cmd_t cmd, ...) {
         status = pwm_enable(&LEFT_FORWARD, false);
         status = pwm_enable(&LEFT_BACKWARD, false);
 
-        runtime_write_atomic(MOTORD_STATE_FILE, 0644, MOTORS_IDLE);
+        runtime_write_atomic(MOTORD_STATE_FILE, 0644, MOTORS_IDLE "\n");
         break;
     
     default:
@@ -475,7 +475,7 @@ int main(void) {
         goto exit;
     }
 
-    runtime_write_atomic(MOTORD_STATE_FILE, 0644, MOTORS_IDLE);
+    runtime_write_atomic(MOTORD_STATE_FILE, 0644, MOTORS_IDLE "\n");
 
     /* open fd for MOTORD_CMD_FIFO */
     cmd_fifo_fd = -1;
