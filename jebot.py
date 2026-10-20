@@ -51,8 +51,9 @@ LED_END_TIME = 10 # same sttd listen time after detect WAKEUP
 
 
 # sttd
-STTD_TEXT_FILE  = "/run/jebot/sttd/text"
-STTD_LANG_FILE  = "/run/jebot/sttd/lang"
+STTD_WAKEUP_FILE = "/run/jebot/sttd/wakeup"
+STTD_TEXT_FILE   = "/run/jebot/sttd/text"
+STTD_LANG_FILE   = "/run/jebot/sttd/lang"
 
 # map
 MAP_SHARE_PATH = SHARE_PATH + "/map"
@@ -71,7 +72,7 @@ try:
     running = True # main loop condition
     child_pid = None
     user_cmd = None
-    led_start_time = 0
+    wakeup = False
     led_handled = False
 
     # signal handler
@@ -96,6 +97,10 @@ try:
         with open(LEDD_CMD_FIFO, 'w') as f:
             f.write(f"{r} {g} {b}")
 
+    def sttd_wakeup():
+        with open(STTD_WAKEUP_FILE, 'r') as f:
+            return bool(int(f.read().strip()))
+
     # function to get user command from sttd
     def get_user_command():
         cmd = None
@@ -119,10 +124,29 @@ try:
     current_lang = get_current_lang()
     sounds_path = BASE_SOUNDS_PATH + f"/{current_lang}"
 
+    # mic control
+    # NOTE: temporary workaround for feedback loop.
+    # jebot plays audio via aplay -> sttd picks it up from the mic.
+    # We mute the mic (temporary solution) while audio plays to avoid this.
+    def mic(mute:bool, device="default"):
+        pid = os.fork()
+
+        if pid == 0:
+            null = os.open("/dev/null", os.O_RDWR)
+            os.dup2(null, 0)
+            os.dup2(null, 1)
+            os.dup2(null, 2)
+
+            os.execlp("amixer", "amixer", "-q", "-D", device, "cset", "name=Mic Capture Switch", "off" if mute else "on")
+        else:
+            os.waitpid(pid, 0)
+
     # function to play sound from sounds_path using aplay as child process without wait
     def play_sound(sound_name:str, device="default") -> int:
         if not os.path.exists(f"{sounds_path}/{sound_name}"):
             raise FileNotFoundError(f"sound: {sounds_path}/{sound_name} not found")
+
+        mic(mute=True)
 
         pid = os.fork()
 
@@ -134,7 +158,6 @@ try:
             os.dup2(null, 2)
 
             os.execlp("aplay", "aplay", "-q", "-D", device, f"{sounds_path}/{sound_name}")
-            os._exit(1)
         else:
             return pid
 
@@ -256,6 +279,8 @@ try:
     else:
         print("there is no cache file (you can ignore it).",flush=True)
 
+    mic(mute=False) # by default
+
 except Exception as e:
     print(f"FATAL ERROR: {e}", file=sys.stderr, flush=True)
     sys.exit(1)
@@ -269,20 +294,31 @@ while running:
 
         try:
             user_cmd = get_user_command()
-        except:
-            print("get_user_command: sttd error", flush=True, file=sys.stderr)
+        except Exception:
+            print("get_user_command error", flush=True, file=sys.stderr)
         try:
             current_lang = get_current_lang()
-        except:
+        except Exception:
             current_lang = "en" # default
-            print("get_current_lang: sttd error", flush=True, file=sys.stderr)
+            print("get_current_lang error", flush=True, file=sys.stderr)
+        try:
+            wakeup = sttd_wakeup()
+        except Exception:
+            wakeup = False
+            print("sttd_wakeup error", flush=True, file=sys.stderr)
 
-        if led_start_time and led_start_time <= time.time():
-            print("led_start_time outed", flush=True)
-            if led_handled:
-                set_led(0, 0, 0)
-                led_handled = False
-                led_start_time = 0
+        # turn on the led if wakeup
+        if wakeup and not led_handled:
+            print("wakeup", flush=True)
+            set_led(0, 255, 0)
+            led_handled = True
+            print("led on '0 255 0'", flush=True)
+        # turn off if handled from wakeup and not wakeup
+        elif not wakeup and led_handled and not child_pid:
+            print("not wakeup", flush=True)
+            set_led(0, 0, 0)
+            led_handled = False
+            print("led off", flush=True)
 
         if user_cmd:
             print(f"user command: '{user_cmd}'", flush=True)
@@ -302,27 +338,23 @@ while running:
                         child_pid = None
 
                     child_pid = play_sound(sound)
+                    print("mic muted", flush=True)
                     set_led(255, 255, 0) # temporary color
                     led_handled = True
-                    led_start_time = 0
                     print("led on '255 255 0'", flush=True)
                 else:
                     print("there is no sound", flush=True)
 
-            elif user_cmd == "WAKEUP":
-                set_led(0, 255, 0)
-                led_handled = True
-                led_start_time = time.time() + LED_END_TIME
-                print("led on '0 255 0'", flush=True)
             else:
                 print(f"'{user_cmd}' not in user_commands", file=sys.stderr, flush=True)
 
-        # clean child process if finished and close led if it on
+        # clean child process if finished and close led if it on and unmute the mic
         if child_pid and os.waitpid(child_pid, os.WNOHANG)[0]:
             child_pid = None
             print("sound ended", flush=True)
+            mic(mute=False)
+            print("mic unmuted", flush=True)
             if led_handled:
-                led_start_time = 0
                 set_led(0, 0 ,0)
                 led_handled = False
                 print("led off", flush=True)
@@ -336,7 +368,7 @@ while running:
 
         if goal_point and not child_pid: # do not move while speaking
             while goal_point and ((now_point[0] != goal_point[0]) or (now_point[1] != goal_point[1])) and running: 
-                way = control.command(lst_points=control.path(Map=np.array(lst_map),start_point=now_point,end_point=goal_point),vector=vector)
+                way = control.command(lst_points=control.path(Map=lst_map,start_point=now_point,end_point=goal_point),vector=vector)
                 keys = {MOVE_FORWARD:"MOVE_FORWARD",TURN_LEFT:"TURN_LEFT",TURN_RIGHT:"TURN_RIGHT"} # dict keys for convert each num with it command
 
                 if way is None:
@@ -411,7 +443,9 @@ while running:
 # exiting / cleaning here
 try:
     save_point(current_point=now_point,vector=vector)
+    if led_handled:
+        set_led(0, 0, 0)
 except Exception as e:
-    print(f"somethin get wrong when the program write on cache {e}",file=sys.stderr,flush=True)
+    print(f"exit error: {e}", file=sys.stderr, flush=True)
 
 sys.exit(0)
