@@ -27,7 +27,7 @@ def del_model(model_name:str):
 
 TimeEnd=0
 Model_name=None
-def listen(model_name: str, timeout=0, sample_rate_in=16000, costom_words=None, Device="plug:default", period_size=16000, channels=1): # costom_words is list!
+def listen(model_name: str, timeout=0, condition=None, sample_rate_in=16000, costom_words=None, Device="plug:default", period_size=16000, channels=1): # costom_words is list!
     global Model_name
     global TimeEnd
     global models_dict
@@ -58,23 +58,24 @@ def listen(model_name: str, timeout=0, sample_rate_in=16000, costom_words=None, 
 
     TimeEnd = time.time() + timeout
 
-    try:
-        while TimeEnd > time.time(): 
+    while True: 
+        if timeout and TimeEnd <= time.time():
+            return None
+        if condition and callable(condition) and not condition():
+            return None
 
-            length, data = pcm.read()
+        length, data = pcm.read()
 
-            if length == 0:
-                continue
+        if length == 0:
+            continue
 
-            if recognizer.AcceptWaveform(data):
-                result = json.loads(recognizer.Result())
-                text = result.get("text", "")
-                if text:
-                    pcm.close()
-                    return text
+        if recognizer.AcceptWaveform(data):
+            result = json.loads(recognizer.Result())
+            text = result.get("text", "")
+            if text:
+                pcm.close()
+                return text
 
-    except KeyboardInterrupt:
-        return None
 
 # function to get a strongest key in 'data'
 

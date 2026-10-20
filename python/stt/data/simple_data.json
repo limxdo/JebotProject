@@ -1,7 +1,5 @@
 {
     "en": {
-        "listen": "WAKEUP",
-
         "change your language": "CHANGE_LANG",
 
         "go to manager room": "GOTO_MANAGER_ROOM",
@@ -27,10 +25,6 @@
         "what the technology program programs": "TECH_PROGRAMS"
     },
     "ar": {
-        "استمع": "WAKEUP",
-        "اسمع": "WAKEUP",
-        "استمر": "WAKEUP",
-
         "غير لغتك": "CHANGE_LANG",
 
         "اين غرفة المدير": "GOTO_MANAGER_ROOM",
