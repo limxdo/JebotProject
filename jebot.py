@@ -433,6 +433,20 @@ while running:
                             # error sound will added later
                             break
             else:
+                home = dct_map["points"]["home"]
+                # set the default vector manual
+                if goal_point[0] == home[0] and goal_point[1] == home[1]: # maybe change the logic from set vector manual to use custom func (it will use to control on robot without create a whole way just for specific reason)
+                    if vector == "down":
+                        send(TURN_RIGHT) 
+                        send(TURN_RIGHT)
+                    elif vector == "right":
+                        send(TURN_LEFT)
+                    elif vector == "left":
+                        send(TURN_RIGHT)
+                    
+                    vector = "up" # set the new vector
+                
+                del home
                 goal_point = None # after arriving at the goal_point , change gaol_points to None
 
         time.sleep(0.01)
