@@ -74,6 +74,7 @@ try:
     user_cmd = None
     wakeup = False
     led_handled = False
+    error_led_start_time = 0 # temporary time var until add error sound later
 
     # signal handler
     def handler(signum, frame):
@@ -295,6 +296,7 @@ while running:
         try:
             user_cmd = get_user_command()
         except Exception:
+            user_cmd = None
             print("get_user_command error", flush=True, file=sys.stderr)
         try:
             current_lang = get_current_lang()
@@ -314,7 +316,7 @@ while running:
             led_handled = True
             print("led on '0 255 0'", flush=True)
         # turn off if handled from wakeup and not wakeup
-        elif not wakeup and led_handled and not child_pid:
+        elif not wakeup and led_handled and not child_pid and not error_led_start_time:
             print("not wakeup", flush=True)
             set_led(0, 0, 0)
             led_handled = False
@@ -334,7 +336,7 @@ while running:
                     print(f"sound: {sound}", flush=True)
                     if child_pid:
                         os.kill(child_pid, signal.SIGTERM)
-                        os.wait()
+                        os.waitpid(child_pid, 0)
                         child_pid = None
 
                     child_pid = play_sound(sound)
@@ -359,6 +361,12 @@ while running:
                 led_handled = False
                 print("led off", flush=True)
 
+        if error_led_start_time and led_handled and error_led_start_time <= time.time():
+            print("led error timeouted, led off", flush=True)
+            set_led(0, 0, 0)
+            error_led_start_time = 0
+            led_handled = False
+
         # if we dont take data from cache file we will use default value
         if not now_point:
             now_point = dct_map["points"]["home"] # default value
@@ -380,13 +388,18 @@ while running:
                         
                     if not running: # if program takes a SIGTERM , it will off
                         break
-                        
+
                     try:
                         reply = send(command=way[command_ptr]) # send command & get replay
                     except Exception as e:
                         print(f"motord error: {e}", flush=True, file=sys.stderr)
                         goal_point = None
                         # error sound will added later
+                        # turn on led red color (error) for 5 seconds
+                        print("led on '255 0 0'", flush=True)
+                        error_led_start_time = time.time() + 5
+                        led_handled = True
+                        set_led(255, 0, 0)
                         break
 
                     reply = reply.split()
@@ -431,23 +444,30 @@ while running:
                             goal_point = None
                             print(f"motord fatal error: {' '.join(reply)}", flush=True, file=sys.stderr)
                             # error sound will added later
+
+                            print("led on '255 0 0'", flush=True)
+                            error_led_start_time = time.time() + 5
+                            led_handled = True
+                            set_led(255, 0, 0)
+
                             break
             else:
-                home = dct_map["points"]["home"]
-                # set the default vector manual
-                if goal_point[0] == home[0] and goal_point[1] == home[1]: # maybe change the logic from set vector manual to use custom func (it will use to control on robot without create a whole way just for specific reason)
-                    if vector == "down":
-                        send(TURN_RIGHT) 
-                        send(TURN_RIGHT)
-                    elif vector == "right":
-                        send(TURN_LEFT)
-                    elif vector == "left":
-                        send(TURN_RIGHT)
+                if goal_point: # check first
+                    home = dct_map["points"]["home"]
+                    # set the default vector manual
+                    if goal_point[0] == home[0] and goal_point[1] == home[1]: # maybe change the logic from set vector manual to use custom func (it will use to control on robot without create a whole way just for specific reason)
+                        if vector == "down":
+                            send(TURN_RIGHT) 
+                            send(TURN_RIGHT)
+                        elif vector == "right":
+                            send(TURN_LEFT)
+                        elif vector == "left":
+                            send(TURN_RIGHT)
+                        
+                        vector = "up" # set the new vector
                     
-                    vector = "up" # set the new vector
-                
-                del home
-                goal_point = None # after arriving at the goal_point , change gaol_points to None
+                    del home
+                    goal_point = None # after arriving at the goal_point , change gaol_points to None
 
         time.sleep(0.01)
     except Exception as e:
