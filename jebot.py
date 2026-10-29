@@ -271,6 +271,7 @@ try:
     goal_point = None 
     now_point = None
     vector = None
+    goal_vector = None # if robot arrive to the goal point , it will adjust its vector to goal vector
     dct_state = get_state() # get cuurant data from cache    
 
     # check if tjere is chache file
@@ -330,7 +331,9 @@ while running:
                 if not goal_point:
                     goal_point = user_commands[user_cmd]["point"]
                     if isinstance(goal_point, str):
-                        goal_point = dct_map["points"][goal_point]
+                        goal_point = dct_map["points"][goal_point]["coordinates"]
+                        goal_vector = dct_map["points"][goal_point]["vector"]
+
 
                 if sound:
                     print(f"sound: {sound}", flush=True)
@@ -452,22 +455,31 @@ while running:
 
                             break
             else:
-                if goal_point: # check first
-                    home = dct_map["points"]["home"]
-                    # set the default vector manual
-                    if goal_point[0] == home[0] and goal_point[1] == home[1]: # maybe change the logic from set vector manual to use custom func (it will use to control on robot without create a whole way just for specific reason)
-                        if vector == "down":
-                            send(TURN_RIGHT) 
-                            send(TURN_RIGHT)
-                        elif vector == "right":
-                            send(TURN_LEFT)
-                        elif vector == "left":
-                            send(TURN_RIGHT)
-                        
-                        vector = "up" # set the new vector
+                if goal_point and goal_vector: # check first
+                    dct_numb_vector = { #numbering vectors for use it in algorithm
+                        "up" : 2,
+                        "right" : -1,
+                        "down" : 0,
+                        "left" : 1
+                    }
+
+                    # turn_right -> -1
+                    # turn_left -> 1
+                    steps = dct_numb_vector[vector] - dct_numb_vector[goal_vector]
                     
-                    del home
-                    goal_point = None # after arriving at the goal_point , change gaol_points to None
+                    if steps == 3:
+                        steps = 1
+                    elif steps == -3:
+                        steps = -1
+                    
+                    for _ in range(abs(steps)):
+                        if steps < 0:
+                            send(TURN_RIGHT)
+                        else:
+                            send(TURN_LEFT)
+
+                goal_point = None # after arriving at the goal_point , change gaol_points to None
+                goal_vector = None
 
         time.sleep(0.01)
     except Exception as e:
