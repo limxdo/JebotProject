@@ -372,7 +372,7 @@ while running:
 
         # if we dont take data from cache file we will use default value
         if not now_point:
-            now_point = dct_map["points"]["home"] # default value
+            now_point = dct_map["points"]["home"]["coordinates"] # default value
         
         if not vector:
             vector = "up"  # default value
@@ -458,7 +458,7 @@ while running:
                 if goal_point and goal_vector: # check first
                     dct_numb_vector = { #numbering vectors for use it in algorithm
                         "up" : 2,
-                        "right" : -1,
+                        "right" : 3,
                         "down" : 0,
                         "left" : 1
                     }
@@ -468,9 +468,9 @@ while running:
                     steps = dct_numb_vector[vector] - dct_numb_vector[goal_vector]
                     
                     if steps == 3:
-                        steps = 1
-                    elif steps == -3:
                         steps = -1
+                    elif steps == -3:
+                        steps = 1
                     
                     for _ in range(abs(steps)):
                         if steps < 0:
