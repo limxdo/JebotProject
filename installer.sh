@@ -46,13 +46,13 @@ case "$1" in
 
         # python venv
         [ ! -d "$PYTHON_VENV" ] && python3 -m venv "$PYTHON_VENV"
-        PYTHON_JEBOT_LIB="$($PYTHON_VENV/bin/python3 -c 'import site; print(site.getsitepackages()[0])')"/jebot
+        PYTHON_SITE="$($PYTHON_VENV/bin/python3 -c 'import site; print(site.getsitepackages()[0])')"
+        PYTHON_JEBOT_LIB="$PYTHON_SITE"/jebot
         "$PYTHON_VENV"/bin/pip install -r python/stt/requirements.txt
         "$PYTHON_VENV"/bin/pip install -r python/map/requirements.txt
 
         # python jebot lib
-        mkdir -p "$PYTHON_JEBOT_LIB"
-        touch "$PYTHON_JEBOT_LIB"/__init__.py
+        cp -rf python/jebot "$PYTHON_SITE"
 
         cp -f python/{stt,map}/lib/* "$PYTHON_JEBOT_LIB"/
 
