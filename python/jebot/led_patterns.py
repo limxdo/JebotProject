@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import time
+import threading
 
 # jebot led here ^^
 # made by Rfg6e :3
@@ -8,6 +9,11 @@ import time
 # ledd
 LEDD_CMD_FIFO = "/run/jebot/ledd/cmd"
 
+# threading vars
+_running_thread = None
+_running = False
+
+# patterns vars
 _FRAME = 0.02
 
 # led control using ledd
@@ -21,7 +27,7 @@ def set_led(r:int, g:int, b:int):
 
 def _pulse(r, g, b, speed):
     step = 0
-    while True:
+    while _running:
         x = (step * speed) % 510
         if x > 255:
             x = 510 - x
@@ -32,10 +38,11 @@ def _pulse(r, g, b, speed):
         step = (step + 1) % 510
 
 
-def talking():
+# base function
+def _talking():
     # jebot is yapping so all the colors come out ^^
     step = 0
-    while True:
+    while _running:
         p = (step * 2) % 256
         if p < 85:
             set_led(255 - p * 3, p * 3, 0)
@@ -48,19 +55,68 @@ def talking():
         time.sleep(_FRAME)
         step = (step + 1) % 128
 
+# thread function
+def talking():
+    global _running_thread, _running
 
-def hearing():
+    if _running_thread and _running_thread.is_alive():
+        _running = False
+        _running_thread.join()
+
+    _running_thread = threading.Thread(target=_talking, daemon=True)
+    _running = True
+    _running_thread.start()
+    
+
+def _hearing():
     _pulse(255, 200, 0, 3)  # slow yellow breathing bc jebot is listening owo
 
+def hearing():
+    global _running_thread, _running
 
-def moving():
+    if _running_thread and _running_thread.is_alive():
+        _running = False
+        _running_thread.join()
+
+    _running_thread = threading.Thread(target=_hearing, daemon=True)
+    _running = True
+    _running_thread.start()
+
+
+def _moving():
     _pulse(0, 0, 255, 5)  # blue and a bit faster bc jebot is going places ^^
 
+def moving():
+    global _running_thread, _running
+
+    if _running_thread and _running_thread.is_alive():
+        _running = False
+        _running_thread.join()
+
+    _running_thread = threading.Thread(target=_moving, daemon=True)
+    _running = True
+    _running_thread.start()
+
+
+def _error():
+    set_led(255, 0, 0)  # jebot messed up >_<
+    while _running: time.sleep(0.01)
 
 def error():
-    set_led(255, 0, 0)  # jebot messed up >_<
-    while True: pass
+    global _running_thread, _running
 
+    if _running_thread and _running_thread.is_alive():
+        _running = False
+        _running_thread.join()
+
+    _running_thread = threading.Thread(target=_error, daemon=True)
+    _running = True
+    _running_thread.start()
 
 def off():
+    global _running_thread, _running
+
+    if _running_thread and _running_thread.is_alive():
+        _running = False
+        _running_thread.join()
     set_led(0, 0, 0)
