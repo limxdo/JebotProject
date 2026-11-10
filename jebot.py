@@ -14,6 +14,7 @@ import json
 import time
 import numpy as np
 import jebot.control as control
+import jebot.led_patterns as led_patterns
 
 
 # Constants
@@ -42,9 +43,6 @@ X1201_CAPACITY = "/run/powerd/x1201/capacity"
 # ultrasonicd
 ULTRASONICD_FRONT_RIGHT = "/run/jebot/ultrasonicd/front_right"
 ULTRASONICD_FRONT_LEFT  = "/run/jebot/ultrasonicd/front_left"
-
-# ledd
-LEDD_CMD_FIFO = "/run/jebot/ledd/cmd"
 
 # led config
 LED_END_TIME = 10 # same sttd listen time after detect WAKEUP
@@ -89,14 +87,6 @@ try:
     print("waiting for the daemons...", flush=True)
     time.sleep(3) # 3 seconds to aviod any problems
 
-
-    # led control using ledd
-    def set_led(r:int, g:int, b:int):
-        if (r < 0 or r > 255) or (g < 0 or g > 255) or (b < 0 or b > 255):
-            raise ValueError("values must be >= 0 and <= 255")
-
-        with open(LEDD_CMD_FIFO, 'w') as f:
-            f.write(f"{r} {g} {b}")
 
     def sttd_wakeup():
         with open(STTD_WAKEUP_FILE, 'r') as f:
@@ -313,13 +303,13 @@ while running:
         # turn on the led if wakeup
         if wakeup and not led_handled:
             print("wakeup", flush=True)
-            set_led(0, 255, 0)
+            led_patterns.hearing()
             led_handled = True
-            print("led on '0 255 0'", flush=True)
+            print("led on 'hearing'", flush=True)
         # turn off if handled from wakeup and not wakeup
         elif not wakeup and led_handled and not child_pid and not error_led_start_time:
             print("not wakeup", flush=True)
-            set_led(0, 0, 0)
+            led_patterns.off()
             led_handled = False
             print("led off", flush=True)
 
@@ -344,9 +334,9 @@ while running:
 
                     child_pid = play_sound(sound)
                     print("mic muted", flush=True)
-                    set_led(255, 255, 0) # temporary color
+                    led_patterns.talking()
                     led_handled = True
-                    print("led on '255 255 0'", flush=True)
+                    print("led on 'talking'", flush=True)
                 else:
                     print("there is no sound", flush=True)
 
@@ -360,13 +350,13 @@ while running:
             mic(mute=False)
             print("mic unmuted", flush=True)
             if led_handled:
-                set_led(0, 0 ,0)
+                led_patterns.off()
                 led_handled = False
                 print("led off", flush=True)
 
         if error_led_start_time and led_handled and error_led_start_time <= time.time():
             print("led error timeouted, led off", flush=True)
-            set_led(0, 0, 0)
+            led_patterns.off()
             error_led_start_time = 0
             led_handled = False
 
@@ -378,6 +368,9 @@ while running:
             vector = "up"  # default value
 
         if goal_point and not child_pid: # do not move while speaking
+            led_patterns.moving()
+            led_handled = True
+            print("led on 'moving'", flush=True)
             while goal_point and ((now_point[0] != goal_point[0]) or (now_point[1] != goal_point[1])) and running: 
                 way = control.command(lst_points=control.path(Map=lst_map,start_point=now_point,end_point=goal_point),vector=vector)
                 keys = {MOVE_FORWARD:"MOVE_FORWARD",TURN_LEFT:"TURN_LEFT",TURN_RIGHT:"TURN_RIGHT"} # dict keys for convert each num with it command
@@ -399,10 +392,10 @@ while running:
                         goal_point = None
                         # error sound will added later
                         # turn on led red color (error) for 5 seconds
-                        print("led on '255 0 0'", flush=True)
-                        error_led_start_time = time.time() + 5
+                        led_patterns.error()
                         led_handled = True
-                        set_led(255, 0, 0)
+                        error_led_start_time = time.time() + 5
+                        print("led on 'error'", flush=True)
                         break
 
                     reply = reply.split()
@@ -448,10 +441,10 @@ while running:
                             print(f"motord fatal error: {' '.join(reply)}", flush=True, file=sys.stderr)
                             # error sound will added later
 
-                            print("led on '255 0 0'", flush=True)
-                            error_led_start_time = time.time() + 5
+                            led_patterns.error()
                             led_handled = True
-                            set_led(255, 0, 0)
+                            error_led_start_time = time.time() + 5
+                            print("led on 'error'", flush=True)
 
                             break
             else:
@@ -483,6 +476,11 @@ while running:
                 goal_point = None # after arriving at the goal_point , change gaol_points to None
                 goal_vector = None
 
+                if not error_led_start_time and led_handled:
+                    led_patterns.off()
+                    led_handled = False
+                    print("led off", flush=True)
+
         time.sleep(0.01)
     except Exception as e:
         print(f"error: {e}", file=sys.stderr, flush=True)
@@ -492,7 +490,7 @@ while running:
 try:
     save_point(current_point=now_point,vector=vector)
     if led_handled:
-        set_led(0, 0, 0)
+        led_patterns.off()
 except Exception as e:
     print(f"exit error: {e}", file=sys.stderr, flush=True)
 
