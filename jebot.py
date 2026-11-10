@@ -331,8 +331,8 @@ while running:
                 if not goal_point:
                     goal_point = user_commands[user_cmd]["point"]
                     if isinstance(goal_point, str):
-                        goal_point = dct_map["points"][goal_point]["coordinates"]
                         goal_vector = dct_map["points"][goal_point]["vector"]
+                        goal_point = dct_map["points"][goal_point]["coordinates"]
 
 
                 if sound:
@@ -475,8 +475,10 @@ while running:
                     for _ in range(abs(steps)):
                         if steps < 0:
                             send(TURN_RIGHT)
+                            now_point,vector = current_point(last_point=now_point,vector=vector,last_command="TURN_RIGHT")
                         else:
                             send(TURN_LEFT)
+                            now_point,vector = current_point(last_point=now_point,vector=vector,last_command="TURN_LEFT")
 
                 goal_point = None # after arriving at the goal_point , change gaol_points to None
                 goal_vector = None
