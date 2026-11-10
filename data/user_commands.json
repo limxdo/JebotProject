@@ -7,27 +7,11 @@
         "sound": "change_lang_done.wav",
         "point": null
     },
-    "GOTO_MANAGER_ROOM": {
-        "sound": "follow_me.wav",
-        "point": "manager_room"
-    },
-    "GOTO_FIRST_CLASS": {
-        "sound": "follow_me.wav",
-        "point": null
-    },
-    "GOTO_SECOND_CLASS": {
-        "sound": "follow_me.wav",
-        "point": null
-    },
-    "GOTO_THIRD_CLASS": {
-        "sound": "follow_me.wav",
-        "point": null
-    },
     "HELLO_HOW_ARE_YOU": {
         "sound": "hallo_in_school.wav",
         "point": null
     },
-    "JION_SCHOOL": {
+    "JOIN_SCHOOL": {
         "sound": "Can_i_join_this_school.wav",
         "point": null
     },
@@ -43,12 +27,40 @@
         "sound": "bye_bye.wav",
         "point": null
     },
-    "STUDENTS_BENFIT": {
+    "STUDENTS_BENEFIT": {
         "sound": "students_benfit.wav",
         "point": null
     },
     "TECH_PROGRAMS": {
         "sound": "technology_prgram.wav",
         "point": null
+    },
+    "GO_TO_MANAGER_ROOM": {
+        "sound": "follow_me.wav",
+        "point": "manager_room"
+    },
+    "GO_TO_VICE_PRINCIPAL_ROOM": {
+        "sound": "follow_me.wav",
+        "point": "vice_principal_room"
+    },
+    "GO_TO_TUWAIQ_ROOM": {
+        "sound": "follow_me.wav",
+        "point": "tuwaiq_room"
+    },
+    "GO_TO_STUDENT_LAB": {
+        "sound": "follow_me.wav",
+        "point": "student_lab"
+    },
+    "GO_TO_FAB_LAB": {
+        "sound": "follow_me.wav",
+        "point": "fab_lab"
+    },
+    "GO_TO_STUDENT_CLASSROOMS": {
+        "sound": "follow_me.wav",
+        "point": "stairs"
+    },
+    "GO_TO_CLINIC_ROOM": {
+        "sound": "follow_me.wav",
+        "point": "clinic_room"
     }
 }

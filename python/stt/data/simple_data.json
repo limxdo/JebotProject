@@ -2,17 +2,9 @@
     "en": {
         "change your language": "CHANGE_LANG",
 
-        "go to manager room": "GOTO_MANAGER_ROOM",
-
-        "go to first class room": "GOTO_FIRST_CLASS",
-
-        "go to second class room": "GOTO_SECOND_CLASS",
-
-        "go to third class room": "GOTO_THIRD_CLASS",
-
         "hello hi are you": "HELLO_HOW_ARE_YOU",
 
-        "can i join this school": "JION_SCHOOL",
+        "can i join this school": "JOIN_SCHOOL",
 
         "who is the manager": "WHO_THE_MANAGER",
 
@@ -20,25 +12,31 @@
 
         "bye see you": "BYE_SEE_YOU",
 
-        "what students student are is benifit": "STUDENTS_BENFIT",
+        "what students student are is benifit": "STUDENTS_BENEFIT",
 
-        "what the technology program programs": "TECH_PROGRAMS"
+        "what the technology program programs": "TECH_PROGRAMS",
+
+        "go to manager room": "GO_TO_MANAGER_ROOM",
+
+        "go to vice principal room": "GO_TO_VICE_PRINCIPAL_ROOM",
+
+        "go to tweak room": "GO_TO_TUWAIQ_ROOM",
+        "go to twig room": "GO_TO_TUWAIQ_ROOM",
+
+        "go to fab lab": "GO_TO_FAB_LAB",
+
+        "go to student lab": "GO_TO_STUDENT_LAB",
+
+        "go to student classrooms": "GO_TO_STUDENT_CLASSROOMS",
+
+        "go to clinic room": "GO_TO_CLINIC_ROOM"
     },
     "ar": {
         "غير لغتك": "CHANGE_LANG",
 
-        "اين غرفة المدير": "GOTO_MANAGER_ROOM",
-        "اين غرفة مدير": "GOTO_MANAGER_ROOM",
-
-        "اين الفصل الاول": "GOTO_FIRST_CLASS",
-
-        "اين الفصل الثاني": "GOTO_SECOND_CLASS",
-
-        "اين الفصل الثالث": "GOTO_THIRD_CLASS",
-
         "مرحبا اهلا وسهلا": "HELLO_HOW_ARE_YOU",
 
-        "هل يمكنني الالتحاق بالمدرسة": "JION_SCHOOL",
+        "هل يمكنني الالتحاق بالمدرسة": "JOIN_SCHOOL",
 
         "من هوا المدير": "WHO_THE_MANAGER",
 
@@ -46,9 +44,23 @@
 
         "وداعا الى اللقاء": "BYE_SEE_YOU",
 
-        "ما يستفيد منه الطلاب": "STUDENTS_BENFIT",
+        "ما يستفيد منه الطلاب": "STUDENTS_BENEFIT",
 
-        "ما هي البرامج التكنولوجية": "TECH_PROGRAMS"
+        "ما هي البرامج التكنولوجية": "TECH_PROGRAMS",
+
+        "اين غرفة المدير": "GO_TO_MANAGER_ROOM",
+        "اين غرفة مدير": "GO_TO_MANAGER_ROOM",
+
+        "اين غرفة الوكيل": "GO_TO_VICE_PRINCIPAL_ROOM",
+
+        "اين غرفة طويق": "GO_TO_TUWAIQ_ROOM",
+
+        "اين معمل الطلاب": "GO_TO_STUDENT_LAB",
+
+        "مختبر التصنيع الرقمي": "GO_TO_FAB_LAB",
+
+        "اين فصول الطلاب": "GO_TO_STUDENT_CLASSROOMS",
+
+        "اين غرفة المرشد الصحي": "GO_TO_CLINIC_ROOM"
     }
-
 }

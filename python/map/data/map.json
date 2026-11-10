@@ -95,35 +95,37 @@
         "vector":"right"
         }, 
 
-    "agent_room": {
+    "vice_principal_room": {
         "coordinates":[47, 5],
         "vector":"down"
         }, 
+
+    "tuwaiq_room":{
+        "coordinates":[1,29],
+        "vector":"down"
+    }, 
     
     "home": {
         "coordinates":[30, 6],
         "vector":"up"
         }, 
     
-    "corner": {
+    "student_lab": {
         "coordinates":[84, 51],
         "vector":"up"
         },
     
-    "robotic_lab":{
+    "fab_lab":{
         "coordinates":[37,59],
         "vector":"left"
         },
-    "steps" : {
+
+    "stairs" : {
         "coordinates":[8,9],
         "vector":"right"
     },
-    "twaik":{
-        "coordinates":[1,29],
-        "vector":"down"
-    }, 
 
-    "medical_room" : {
+    "clinic_room" : {
         "coordinates":[68,60],
         "vector":"down"
     }
