@@ -60,8 +60,10 @@ def listen(model_name: str, timeout=0, condition=None, sample_rate_in=16000, cos
 
     while True: 
         if timeout and TimeEnd <= time.time():
+            pcm.close()
             return None
         if condition and callable(condition) and not condition():
+            pcm.close()
             return None
 
         length, data = pcm.read()
