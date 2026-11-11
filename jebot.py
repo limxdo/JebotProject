@@ -45,9 +45,10 @@ ULTRASONICD_FRONT_RIGHT = "/run/jebot/ultrasonicd/front_right"
 ULTRASONICD_FRONT_LEFT  = "/run/jebot/ultrasonicd/front_left"
 
 # sttd
-STTD_LISTENING_FILE = "/run/jebot/sttd/listening"
-STTD_TEXT_FILE      = "/run/jebot/sttd/text"
-STTD_LANG_FILE      = "/run/jebot/sttd/lang"
+STTD_LISTENING_FILE   = "/run/jebot/sttd/listening"
+STTD_TEXT_FILE        = "/run/jebot/sttd/text"
+STTD_LANG_FILE        = "/run/jebot/sttd/lang"
+STTD_LISTEN_MUTE_FILE = "/run/jebot/sttd/listen_mute"
 
 # map
 MAP_SHARE_PATH = SHARE_PATH + "/map"
@@ -108,32 +109,23 @@ try:
         with open(STTD_LANG_FILE, 'r') as f:
             return f.read().strip()
 
+    # sttd listening mute control
+    def sttd_listen_mute(mute:bool):
+        try:
+            with open(STTD_LISTEN_MUTE_FILE, 'w') as f:
+                f.write(f"{int(mute)}\n")
+        except FileNotFoundError:
+            pass # ignore it
+
     listen_lang = sttd_get_listen_lang()
     sounds_path = BASE_SOUNDS_PATH + f"/{listen_lang}"
-
-    # mic control
-    # NOTE: temporary workaround for feedback loop.
-    # jebot plays audio via aplay -> sttd picks it up from the mic.
-    # We mute the mic (temporary solution) while audio plays to avoid this.
-    def mic(mute:bool, device="default"):
-        pid = os.fork()
-
-        if pid == 0:
-            null = os.open("/dev/null", os.O_RDWR)
-            os.dup2(null, 0)
-            os.dup2(null, 1)
-            os.dup2(null, 2)
-
-            os.execlp("amixer", "amixer", "-q", "-D", device, "cset", "name=Mic Capture Switch", "off" if mute else "on")
-        else:
-            os.waitpid(pid, 0)
 
     # function to play sound from sounds_path using aplay as child process without wait
     def play_sound(sound_name:str, device="default") -> int:
         if not os.path.exists(f"{sounds_path}/{sound_name}"):
             raise FileNotFoundError(f"sound: {sounds_path}/{sound_name} not found")
 
-        mic(mute=True)
+        sttd_listen_mute(True)
 
         pid = os.fork()
 
@@ -244,7 +236,7 @@ try:
     else:
         print("there is no cache file (you can ignore it).",flush=True)
 
-    mic(mute=False) # by default
+    sttd_listen_mute(False)
 
 except Exception as e:
     print(f"FATAL ERROR: {e}", file=sys.stderr, flush=True)
@@ -320,7 +312,7 @@ while running:
         if child_pid and os.waitpid(child_pid, os.WNOHANG)[0]:
             child_pid = None
             print("sound ended", flush=True)
-            mic(mute=False)
+            sttd_listen_mute(False)
             print("mic unmuted", flush=True)
             if led_handled:
                 led_patterns.off()

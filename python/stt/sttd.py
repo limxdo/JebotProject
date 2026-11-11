@@ -19,14 +19,15 @@ STT_DATA_PATH = "/usr/local/share/jebot/stt"
 VAR_PATH      = "/var/lib/jebot"
 
 # Fork Paths
-STTD_RUNTIME_PATH   = RUNTIME_PATH + "/sttd"
-STTD_PID_PATH       = STTD_RUNTIME_PATH + "/pid"
-STTD_LISTENING_FILE = STTD_RUNTIME_PATH + "/listening"
-STTD_TEXT_FILE      = STTD_RUNTIME_PATH + "/text"
-STTD_LANG_FILE      = STTD_RUNTIME_PATH + "/lang"
-STTD_LAST_LANG_FILE = VAR_PATH + "/last_lang"
-STT_MODELS_PATH     = STT_DATA_PATH + "/models"
-STTD_DATA_FILE      = STT_DATA_PATH + "/simple_data.json"
+STTD_RUNTIME_PATH     = RUNTIME_PATH + "/sttd"
+STTD_PID_PATH         = STTD_RUNTIME_PATH + "/pid"
+STTD_LISTENING_FILE   = STTD_RUNTIME_PATH + "/listening"
+STTD_TEXT_FILE        = STTD_RUNTIME_PATH + "/text"
+STTD_LANG_FILE        = STTD_RUNTIME_PATH + "/lang"
+STTD_LISTEN_MUTE_FILE = STTD_RUNTIME_PATH + "/listen_mute"
+STTD_LAST_LANG_FILE   = VAR_PATH + "/last_lang"
+STT_MODELS_PATH       = STT_DATA_PATH + "/models"
+STTD_DATA_FILE        = STT_DATA_PATH + "/simple_data.json"
 
 # listening
 LISTENING_DISTANCE = 30 # cm
@@ -82,17 +83,30 @@ try:
 
     def listening_condition():
         try:
+            with open(STTD_LISTEN_MUTE_FILE, 'r') as f:
+                tmp = f.read().strip()
+            listen_mute = bool(int(tmp))
+        except (ValueError, FileNotFoundError):
+            with open(STTD_LISTEN_MUTE_FILE, 'w') as f:
+                f.write("0")
+            listen_mute = False
+
+        try:
+            with open("/run/jebot/motord/motors_state", 'r') as f:
+                motors_state = f.read().strip()
+        except FileNotFoundError:
+            motors_state = "idle" # default
+
+        try:
             with open("/run/jebot/ultrasonicd/front_right", 'r') as f:
                 right = float(f.read().strip())
             with open("/run/jebot/ultrasonicd/front_left", 'r') as f:
                 left = float(f.read().strip())
-            with open("/run/jebot/motord/motors_state", 'r') as f:
-                motors_state = f.read().strip()
         except FileNotFoundError:
-            set_listening(False)
-            return False
+            right = 0.0
+            left = 0.0
 
-        if ((right > 0.0 and right <= LISTENING_DISTANCE) or (left > 0.0 and left <= LISTENING_DISTANCE)) and motors_state != "running":
+        if not listen_mute and ((right > 0.0 and right <= LISTENING_DISTANCE) or (left > 0.0 and left <= LISTENING_DISTANCE)) and motors_state == "idle":
             set_listening(True)
             return True
 
@@ -123,9 +137,14 @@ try:
     custom_words_en = list(custom_words_en)
 
 
-    # just create files
+    # create files
     write_text("")
     set_listening(False)
+
+    with open(STTD_LISTEN_MUTE_FILE, 'w') as f:
+        f.write("0\n") # default is unmuted
+
+    os.chmod(STTD_LISTEN_MUTE_FILE, 0o666)
     os.chmod(STTD_TEXT_FILE, 0o644)
     os.chmod(STTD_LISTENING_FILE, 0o644)
 
@@ -186,6 +205,7 @@ try:
     os.remove(STTD_TEXT_FILE)
     os.remove(STTD_LANG_FILE)
     os.remove(STTD_LISTENING_FILE)
+    os.remove(STTD_LISTEN_MUTE_FILE)
     os.remove(STTD_PID_PATH)
     os.rmdir(STTD_RUNTIME_PATH)
 
