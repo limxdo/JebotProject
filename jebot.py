@@ -181,62 +181,39 @@ try:
             return replay
 
     def current_point(last_point:list,vector:str,last_command:str) -> tuple:
-        # list near point from our point var
-        dct_near_points = {"down" : (last_point[0]+1,last_point[1]), 
-                            "right" : (last_point[0],last_point[1]+1), 
-                            "up" : (last_point[0]-1,last_point[1]), 
-                            "left" : (last_point[0],last_point[1]-1)} 
+        # turn_right -> 1
+        # turn_left -> -1
 
-        match last_command: # use match-case to split the possibilities of commands 
-            case "MOVE_FORWARD":
-                if 0 > dct_near_points[vector][0] or 0 > dct_near_points[vector][1]: # check that the code will not get out from the map
-                    return "error"
+        # numbering vectors for use it in algorithm & connect each vector with it new point if last_command was MOVE_FORWARD or MOVE_BACKWARD
+        dct_numb_vector = { 
+        "up" : [2 , [last_point[0] - 1, last_point[1]]],
+        "right" : [3 , [last_point[0], last_point[1]+1]],
+        "down" : [0 , [last_point[0] + 1, last_point[1]]],
+        "left" : [1 , [last_point[0], last_point[1] - 1]]
+        }
 
-                return dct_near_points[vector],vector
+        dct_BACKWARD_new_point = { # get new point by use vectors
+            "up" : "down",
+            "down":"up",
+            "right" : "left",
+            "left":"right"
+        }
 
+        dct_numb_commands = {
+            "MOVE_FORWARD" : 0,
+            "MOVE_BACKWARD" : 0,
+            "TURN_LEFT":-1,
+            "TURN_RIGHT":1
+        }
 
-            case "TURN_RIGHT": # handel all possibilities in if statement
-                # we just here change the vector because there is no changing on real point
-                if vector == "up":
-                    return last_point,"right"
-                elif vector == "down":
-                    return last_point,"left"
-                elif vector == "right":
-                    return last_point,"down"
-                elif vector == "left":
-                    return last_point,"up"
+        new_vector = dct_numb_vector[vector][0] + dct_numb_commands[last_command]
+        new_vector = new_vector if -1 < new_vector < 4 else 3 if new_vector == -1 else 0 # handel unlogical values
+        new_point = last_point
 
-
-            case "TURN_LEFT": # handel all possibilities in if statement
-                # we just here change the vector because there is no changing on real point
-                if vector == "up":
-                    return last_point,"left"
-                elif vector == "down":
-                    return last_point,"right"
-                elif vector == "right":
-                    return last_point,"up"
-                elif vector == "left":
-                    return last_point,"down"
-
-
-            case "MOVE_BACKWARD":
-                # the bachward it just walk oppsite vector , so we use if statment here
-                if vector == "up":
-                    risult = dct_near_points["down"],vector
-                elif vector == "down":
-                    risult = dct_near_points["up"],vector
-                elif vector == "right":
-                    risult = dct_near_points["left"],vector
-                elif vector == "left":
-                    risult = dct_near_points["right"],vector
-                
-                if 0 > risult[0][0] or 0 > risult[0][1]: # check that the code will not geu out of the mao
-                    return "error"
-                
-                return risult
-            
-            case _:
-                return "error" # if the input is invalid
+        if last_command == "MOVE_FORWARD" or last_command == "MOVE_BACKWARD": 
+            new_point = dct_numb_vector[vector][1] if last_command == "MOVE_FORWARD" else dct_numb_vector[dct_BACKWARD_new_point[vector]][1]
+        
+        return new_point,new_vector
 
 
     # load USER_COMMANDS_FILE
