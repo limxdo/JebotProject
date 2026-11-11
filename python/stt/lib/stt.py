@@ -10,7 +10,7 @@ SetLogLevel(-1)
 
 models_dict = {}
 def load_model(model_path: str, model_name: str):
-    global modeles_dict
+    global models_dict
 
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"model: '{model_path}' not found.")
@@ -27,7 +27,7 @@ def del_model(model_name:str):
 
 TimeEnd=0
 Model_name=None
-def listen(model_name: str, timeout=0, condition=None, sample_rate_in=16000, costom_words=None, Device="plug:default", period_size=16000, channels=1): # costom_words is list!
+def listen(model_name: str, timeout=0, condition=None, sample_rate_in=16000, custom_words=None, Device="plug:default", period_size=16000, channels=1): # custom_words is list!
     global Model_name
     global TimeEnd
     global models_dict
@@ -39,9 +39,9 @@ def listen(model_name: str, timeout=0, condition=None, sample_rate_in=16000, cos
 
     # Processing the model
     # vvvvvvvvvvvvvvvvvvvv
-    if costom_words!=None:
-        costom_words = json.dumps(costom_words)
-        recognizer = KaldiRecognizer(models_dict[model_name], sample_rate_in, costom_words)
+    if custom_words!=None:
+        custom_words = json.dumps(custom_words)
+        recognizer = KaldiRecognizer(models_dict[model_name], sample_rate_in, custom_words)
     else:
         recognizer = KaldiRecognizer(models_dict[model_name], sample_rate_in)
     # ^^^^^^^^^^^^^^^^^^^^
@@ -141,17 +141,14 @@ def simple(value: str, data: dict, miniweight=75.0) :
         for keys in outdata:
             if outdata[keys] == high and(not keys in highers_list):
                 highers_list.append(keys)
-        higher_char = 0
         weight = 0
         for highers_in in highers_list:
             if weight < cal(highers_in, clean_value):
                 weight = cal(highers_in, clean_value)
                 
-        print(weight)
         if weight>=miniweight:
             for highers_in in highers_list:
                 if weight == cal(highers_in, clean_value):
-                    print(weight)
                     return highers_in
 # example to use
 # vvvvvvvvvvvvvv
@@ -163,7 +160,7 @@ def simple(value: str, data: dict, miniweight=75.0) :
 #     "go to third class room": "GOTO_THIRD_CLASS",
 # }
 # 
-# costom_words_list = [ "where", "is", "the", "manager", "first", "second", "third", "room", "class", "classroom" ]
+# custom_words_list = [ "where", "is", "the", "manager", "first", "second", "third", "room", "class", "classroom" ]
 # load_model("enm", "md")
 # listent = listen("md", 30, 16000)
 # print(listent)

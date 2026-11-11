@@ -44,14 +44,10 @@ X1201_CAPACITY = "/run/powerd/x1201/capacity"
 ULTRASONICD_FRONT_RIGHT = "/run/jebot/ultrasonicd/front_right"
 ULTRASONICD_FRONT_LEFT  = "/run/jebot/ultrasonicd/front_left"
 
-# led config
-LED_END_TIME = 10 # same sttd listen time after detect WAKEUP
-
-
 # sttd
-STTD_WAKEUP_FILE = "/run/jebot/sttd/wakeup"
-STTD_TEXT_FILE   = "/run/jebot/sttd/text"
-STTD_LANG_FILE   = "/run/jebot/sttd/lang"
+STTD_LISTENING_FILE = "/run/jebot/sttd/listening"
+STTD_TEXT_FILE      = "/run/jebot/sttd/text"
+STTD_LANG_FILE      = "/run/jebot/sttd/lang"
 
 # map
 MAP_SHARE_PATH = SHARE_PATH + "/map"
@@ -70,7 +66,7 @@ try:
     running = True # main loop condition
     child_pid = None
     user_cmd = None
-    wakeup = False
+    listening = False
     led_handled = False
     error_led_start_time = 0 # temporary time var until add error sound later
 
@@ -88,12 +84,12 @@ try:
     time.sleep(3) # 3 seconds to aviod any problems
 
 
-    def sttd_wakeup():
-        with open(STTD_WAKEUP_FILE, 'r') as f:
+    def sttd_is_listening():
+        with open(STTD_LISTENING_FILE, 'r') as f:
             return bool(int(f.read().strip()))
 
     # function to get user command from sttd
-    def get_user_command():
+    def sttd_get_user_command():
         cmd = None
 
         # temporary fix: check size before read to avoid losing commands
@@ -108,12 +104,12 @@ try:
 
         return cmd
 
-    def get_current_lang():
+    def sttd_get_listen_lang():
         with open(STTD_LANG_FILE, 'r') as f:
             return f.read().strip()
 
-    current_lang = get_current_lang()
-    sounds_path = BASE_SOUNDS_PATH + f"/{current_lang}"
+    listen_lang = sttd_get_listen_lang()
+    sounds_path = BASE_SOUNDS_PATH + f"/{listen_lang}"
 
     # mic control
     # NOTE: temporary workaround for feedback loop.
@@ -258,34 +254,34 @@ except Exception as e:
 # main loop, any exceptions based on 'Exception' here just be print as error log
 while running:
     try:
-        sounds_path = BASE_SOUNDS_PATH + f"/{current_lang}"
+        sounds_path = BASE_SOUNDS_PATH + f"/{listen_lang}"
         lst_map = dct_map["maps"]["school_hall"].copy() # get map from map.json
 
         try:
-            user_cmd = get_user_command()
+            user_cmd = sttd_get_user_command()
         except Exception:
             user_cmd = None
-            print("get_user_command error", flush=True, file=sys.stderr)
+            print("sttd_get_user_command error", flush=True, file=sys.stderr)
         try:
-            current_lang = get_current_lang()
+            listen_lang = sttd_get_listen_lang()
         except Exception:
-            current_lang = "en" # default
-            print("get_current_lang error", flush=True, file=sys.stderr)
+            listen_lang = "en" # default
+            print("sttd_get_listen_lang error", flush=True, file=sys.stderr)
         try:
-            wakeup = sttd_wakeup()
+            listening = sttd_is_listening()
         except Exception:
-            wakeup = False
-            print("sttd_wakeup error", flush=True, file=sys.stderr)
+            listening = False
+            print("sttd_is_listening error", flush=True, file=sys.stderr)
 
-        # turn on the led if wakeup
-        if wakeup and not led_handled:
-            print("wakeup", flush=True)
+        # turn on the led if listening
+        if listening and not led_handled:
+            print("listening", flush=True)
             led_patterns.hearing()
             led_handled = True
             print("led on 'hearing'", flush=True)
-        # turn off if handled from wakeup and not wakeup
-        elif not wakeup and led_handled and not child_pid and not error_led_start_time:
-            print("not wakeup", flush=True)
+        # turn off if handled from listening and not listening
+        elif not listening and led_handled and not child_pid and not error_led_start_time:
+            print("not listening", flush=True)
             led_patterns.off()
             led_handled = False
             print("led off", flush=True)
