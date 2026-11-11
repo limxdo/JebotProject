@@ -338,7 +338,7 @@ while running:
             now_point = dct_map["points"]["home"]["coordinates"] # default value
         
         if not vector:
-            vector = "up"  # default value
+            vector = dct_map["points"]["home"]["vector"]  # default value
 
         if goal_point and not child_pid: # do not move while speaking
             led_patterns.moving()
