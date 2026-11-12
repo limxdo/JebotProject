@@ -74,7 +74,10 @@ try:
         try:
             os.rename(STTD_LISTENING_FILE + ".tmp", STTD_LISTENING_FILE)
         except Exception:
-            pass
+            try:
+                os.remove(STTD_LISTENING_FILE + ".tmp")
+            except Exception:
+                pass
 
     # create STTD_TEXT_FILE
     def write_text(text):
