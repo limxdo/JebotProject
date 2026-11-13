@@ -12,6 +12,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
 
 gpio_chip_t chip0;
 volatile bool running = true;
@@ -22,10 +23,13 @@ volatile bool running = true;
 
 /************** INA219 **************/
 #define INA219_RUNTIME "ina219"
-#define INA219_VSHUNT_PATH   INA219_RUNTIME "/shunt_voltage"
-#define INA219_VBUS_PATH     INA219_RUNTIME "/bus_voltage"
-#define INA219_POWER_PATH    INA219_RUNTIME "/power"
-#define INA219_CURRENT_PATH  INA219_RUNTIME "/current"
+#define INA219_VSHUNT_PATH  INA219_RUNTIME "/shunt_voltage"
+#define INA219_VBUS_PATH    INA219_RUNTIME "/bus_voltage"
+#define INA219_POWER_PATH   INA219_RUNTIME "/power"
+#define INA219_CURRENT_PATH INA219_RUNTIME "/current"
+
+#define INA219_LOW_BATTERY_PATH  INA219_RUNTIME "/low_battery"
+#define INA219_POWER_LOST_PATH   INA219_RUNTIME "/power_lost"
 
 
 #define INA219_ADDR        0x40
@@ -77,6 +81,9 @@ volatile bool running = true;
 
 #define INA219_CALIBRATION (INA219_CAL_FACTOR / (INA219_CURRENT_LSB * RSHUNT))
 
+/* low voltage value */
+#define INA219_BATTERY_LOW_VOLTAGE 11.0f
+
 struct ina219 {
     int i2c_fd;
 
@@ -90,6 +97,9 @@ struct ina219 {
     float vbus_V;
     float current_A;
     float power_W;
+
+    bool low_battery;
+    bool power_lost;
 };
 
 int ina219_set_config(int fd, uint16_t config) {
@@ -225,6 +235,8 @@ int ina219_get_power(int fd, float lsb, float *out) {
 #define X1201_CAPACITY_PATH X1201_RUNTIME "/capacity"
 #define X1201_CHARGING_PATH X1201_RUNTIME "/charging"
 
+#define X1201_LOW_BATTERY_PATH  X1201_RUNTIME "/low_battery"
+
 #define X1201_ADDR         0x36
 
 #define X1201_VOLTAGE_REG  0x02
@@ -233,12 +245,18 @@ int ina219_get_power(int fd, float lsb, float *out) {
 #define X1201_POWER_LOSS_GPIO    6  // if read HIGH: charger plugged, if read LOW: charger unplugged
 #define X1201_CHARGING_CTRL_GPIO 16 // if write HIGH: disable charging, if write LOW: enable charging
 
+/* low & critical voltage value */
+#define X1201_CRITICAL_SHUTDOWN_VOLTAGE 3.4f
+#define X1201_LOW_VOLTAGE               3.6f
+
 struct x1201 {
     int i2c_fd;
 
     float voltage_V;
     float capacity;
     int8_t charging;
+
+    bool low_battery;
 };
 
 int x1201_get_capacity(int fd, float *out) {
@@ -306,11 +324,13 @@ int main(void) {
     int exit_status = 0;
 
     struct ina219 ina219 = {
-        .i2c_fd = -1
+        .i2c_fd = -1,
+        0
     };
 
     struct x1201 x1201 = {
-        .i2c_fd = -1
+        .i2c_fd = -1,
+        0
     };
 
     int runtime_init_ret = -1;
@@ -389,6 +409,10 @@ int main(void) {
     /* X1201 runtime */
     runtime_mkdir(X1201_RUNTIME, 0755);
 
+    /* create warngins paths & writes default values */
+    runtime_write_atomic(INA219_POWER_LOST_PATH, 0644, "%d\n", 0);
+    runtime_write_atomic(INA219_LOW_BATTERY_PATH, 0644, "%d\n", 0);
+    runtime_write_atomic(X1201_LOW_BATTERY_PATH, 0644, "%d\n", 0);
 
     while (running) {
         /* INA219 */
@@ -404,6 +428,33 @@ int main(void) {
             runtime_write_atomic(INA219_VBUS_PATH, 0644, "error\n");
         } else {
             runtime_write_atomic(INA219_VBUS_PATH, 0644, "%.3f\n", ina219.vbus_V);
+
+            /* battery warnings */
+            if (ina219.vbus_V < 6.0f) {
+                if (!ina219.power_lost) { // write & log once
+                    log_warn("ina219 battery power lost\n");
+                    ina219.power_lost = true;
+                    runtime_write_atomic(INA219_POWER_LOST_PATH, 0644, "%d\n", 1);
+                    ina219.low_battery = false;
+                    runtime_write_atomic(INA219_LOW_BATTERY_PATH, 0644, "%d\n", 0);
+                }
+            }
+            else {
+                ina219.power_lost = false;
+                runtime_write_atomic(INA219_POWER_LOST_PATH, 0644, "%d\n", 0);
+
+                if (ina219.vbus_V <= INA219_BATTERY_LOW_VOLTAGE) {
+                    if (!ina219.low_battery) {
+                        log_warn("ina219 battery low voltage\n");
+                        ina219.low_battery = true;
+                        runtime_write_atomic(INA219_LOW_BATTERY_PATH, 0644, "%d\n", 1);
+                    }
+                }
+                else {
+                    ina219.low_battery = false;
+                    runtime_write_atomic(INA219_LOW_BATTERY_PATH, 0644, "%d\n", 0);
+                }
+            }
         }
 
         if (ina219_get_current(ina219.i2c_fd, ina219.current_lsb, &ina219.current_A) < 0) {
@@ -427,6 +478,23 @@ int main(void) {
             runtime_write_atomic(X1201_VOLTAGE_PATH, 0644, "error\n");
         } else {
             runtime_write_atomic(X1201_VOLTAGE_PATH, 0644, "%.3f\n", x1201.voltage_V);
+
+            /* battery warnings */
+            if (x1201.voltage_V <= X1201_CRITICAL_SHUTDOWN_VOLTAGE) {
+                log_warn("x1201 battery critical shutdown!\n");
+                system("poweroff");
+            }
+            else if (x1201.voltage_V <= X1201_LOW_VOLTAGE) {
+                if (!x1201.low_battery) {
+                    log_warn("x1201 battery low voltage\n");
+                    x1201.low_battery = true;
+                    runtime_write_atomic(X1201_LOW_BATTERY_PATH, 0644, "%d\n", 1);
+                }
+            }
+            else {
+                x1201.low_battery = false;
+                runtime_write_atomic(X1201_LOW_BATTERY_PATH, 0644, "%d\n", 0);
+            }
         }
 
         if (x1201_get_capacity(x1201.i2c_fd, &x1201.capacity) < 0) {
