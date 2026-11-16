@@ -185,7 +185,11 @@ try:
         "up" : [2 , [last_point[0] - 1, last_point[1]]],
         "right" : [3 , [last_point[0], last_point[1]+1]],
         "down" : [0 , [last_point[0] + 1, last_point[1]]],
-        "left" : [1 , [last_point[0], last_point[1] - 1]]
+        "left" : [1 , [last_point[0], last_point[1] - 1]],
+        0:"down",
+        1:"left",
+        2:"up",
+        3:"right"
         }
 
         dct_BACKWARD_new_point = { # get new point by use vectors
@@ -209,7 +213,7 @@ try:
         if last_command == "MOVE_FORWARD" or last_command == "MOVE_BACKWARD": 
             new_point = dct_numb_vector[vector][1] if last_command == "MOVE_FORWARD" else dct_numb_vector[dct_BACKWARD_new_point[vector]][1]
         
-        return new_point,new_vector
+        return new_point,dct_numb_vector[new_vector]
 
 
     # load USER_COMMANDS_FILE
