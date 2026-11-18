@@ -31,14 +31,22 @@ BASE_SOUNDS_PATH = SHARE_PATH + "/sounds"
 MOTORD_CMD_FIFO    = "/run/jebot/motord/cmd"
 MOTORD_REPLY_FIFO = "/run/jebot/motord/reply"
 
-# powerd
-POWERD_INA219_VBUS    = "/run/powerd/ina219/bus_voltage"
-POWERD_INA219_VSHUNT  = "/run/powerd/ina219/shunt_voltage"
-POWERD_INA219_CURRENT = "/run/powerd/ina219/current"
-POWERD_INA219_POWER   = "/run/powerd/ina219/power"
 
-X1201_VOLTAGE  = "/run/powerd/x1201/voltage"
-X1201_CAPACITY = "/run/powerd/x1201/capacity"
+# powerd
+POWERD_INA219_VBUS    = "/run/jebot/powerd/ina219/bus_voltage"
+POWERD_INA219_VSHUNT  = "/run/jebot/powerd/ina219/shunt_voltage"
+POWERD_INA219_CURRENT = "/run/jebot/powerd/ina219/current"
+POWERD_INA219_POWER   = "/run/jebot/powerd/ina219/power"
+
+# X1201
+POWERD_X1201_VOLTAGE  = "/run/jebot/powerd/x1201/voltage"
+PWOERD_X1201_CAPACITY = "/run/jebot/powerd/x1201/capacity"
+
+# battery warnings
+POWERD_INA219_LOW_BATTERY = "/run/jebot/powerd/ina219/low_battery"
+POWERD_INA219_POWER_LOST  = "/run/jebot/powerd/ina219/power_lost"
+POWERD_X1201_LOW_BATTERY  = "/run/jebot/powerd/x1201/low_battery"
+
 
 # ultrasonicd
 ULTRASONICD_FRONT_RIGHT = "/run/jebot/ultrasonicd/front_right"
@@ -70,6 +78,9 @@ try:
     listening = False
     led_handled = False
     error_led_start_time = 0 # temporary time var until add error sound later
+    ina219_low_battery = False
+    ina219_power_lost = False
+    x1201_low_battery = False
 
     # signal handler
     def handler(signum, frame):
@@ -119,6 +130,22 @@ try:
 
     listen_lang = sttd_get_listen_lang()
     sounds_path = BASE_SOUNDS_PATH + f"/{listen_lang}"
+
+    # powerd
+    def powerd_ina219_low_battery():
+        with open(POWERD_INA219_LOW_BATTERY, 'r') as f:
+            return bool(int(f.read().strip()))
+
+    def powerd_ina219_power_lost():
+        with open(POWERD_INA219_POWER_LOST, 'r') as f:
+            return bool(int(f.read().strip()))
+
+    def powerd_x1201_low_battery():
+        # if this function return's True, this is critical warning! the system will be shutting down soon by powerd
+        # becase the backup battery is very low
+        with open(POWERD_X1201_LOW_BATTERY, 'r') as f:
+            return bool(int(f.read().strip()))
+
 
     # function to play sound from sounds_path using aplay as child process without wait
     def play_sound(sound_name:str, device="default") -> int:
@@ -240,7 +267,17 @@ try:
     else:
         print("there is no cache file (you can ignore it).",flush=True)
 
-    sttd_listen_mute(False)
+    sttd_listen_mute(False) # default
+
+    # init & get values
+    ina219_low_battery = False
+    ina219_power_lost = False
+    x1201_low_battery = False
+
+    # timers to control logging & sound
+    ina219_low_battery_timer = 0
+    ina219_power_lost_timer = 0
+    x1201_low_battery_timer = 0
 
 except Exception as e:
     print(f"FATAL ERROR: {e}", file=sys.stderr, flush=True)
@@ -268,6 +305,48 @@ while running:
         except Exception:
             listening = False
             print("sttd_is_listening error", flush=True, file=sys.stderr)
+
+        # powerd warnings
+        try:
+            ina219_low_battery = powerd_ina219_low_battery()
+        except Exception:
+            ina219_low_battery = False
+            print("powerd_ina219_low_battery error", flush=True, file=sys.stderr)
+        try:
+            ina219_power_lost = powerd_ina219_power_lost()
+        except Exception:
+            ina219_power_lost = False
+            print("powerd_ina219_power_lost error", flush=True, file=sys.stderr)
+        try:
+            x1201_low_battery = powerd_x1201_low_battery()
+        except Exception:
+            x1201_low_battery = False
+            print("powerd_x1201_low_battery error", flush=True, file=sys.stderr)
+
+        # batteries warnings logic
+        if ina219_power_lost:
+            if not ina219_power_lost_timer or ina219_power_lost_timer <= time.time():
+                # warning sound will added later
+                print("main battery power lost", flush=True)
+                ina219_power_lost_timer = time.time() + 60 # 1.0 minute timer
+        else:
+            ina219_power_lost_timer = 0 # reset the timer
+
+        if ina219_low_battery:
+            if not ina219_low_battery_timer or ina219_low_battery_timer <= time.time():
+                # warning sound will added later
+                print("main battery is low", flush=True)
+                ina219_low_battery_timer = time.time() + 120 # 2.0 minute
+        else:
+            ina219_low_battery_timer = 0
+
+        if x1201_low_battery:
+            if not x1201_low_battery_timer or x1201_low_battery_timer <= time.time():
+                # critical warning sound will added later
+                print("backup battery is low!, the system will shutting down soon", flush=True)
+                x1201_low_battery_timer = time.time() + 20 # 20 seconds timer becase this critical
+        else:
+            x1201_low_battery_timer = 0
 
         # turn on the led if listening
         if listening and not led_handled:
