@@ -86,6 +86,22 @@
 
 ---
 
+## Ultrasonic
+
+### Right side
+- VCC -> `5v_busbar`
+- GND -> `low_current_GND_busbar`
+- Echo -> GPIO 27
+- Trig -> GPIO 17
+
+### Left side
+- VCC -> `5v_busbar`
+- GND -> `low_current_GND_busbar`
+- Echo -> GPIO 25
+- Trig -> GPIO 22
+
+---
+
 ## I2C
 - `SDA_busbar` -> GPIO 2
 - `SCL_busbar` -> GPIO 3
@@ -140,6 +156,10 @@
 | GPIO 9  | RGB LED R-side  |
 | GPIO 10 | RGB LED G-side  |
 | GPIO 11 | RGB LED B-side  |
+| GPIO 27 | Right Echo      |
+| GPIO 17 | Right Trig      |
+| GPIO 25 | Left Echo       |
+| GPIO 22 | Left Trig       |
 
 ---
 
