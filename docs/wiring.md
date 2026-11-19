@@ -89,13 +89,13 @@
 ## Ultrasonic
 
 ### Right side
-- VCC -> `5v_busbar`
+- VCC -> `3.3v_busbar`
 - GND -> `low_current_GND_busbar`
 - Echo -> GPIO 27
 - Trig -> GPIO 17
 
 ### Left side
-- VCC -> `5v_busbar`
+- VCC -> `3.3v_busbar`
 - GND -> `low_current_GND_busbar`
 - Echo -> GPIO 25
 - Trig -> GPIO 22
